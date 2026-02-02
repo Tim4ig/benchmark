@@ -53,4 +53,6 @@ target_include_directories(vkbench PRIVATE
 
 target_link_libraries(vkbench PRIVATE Vulkan::Vulkan)
 
-target_compile_definitions(vkbench PRIVATE VKBENCH_SHADER_DIR="${SHADER_BIN_DIR}")
+if(UNIX AND NOT APPLE)
+  target_link_libraries(vkbench PRIVATE dl)
+endif()

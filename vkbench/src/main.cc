@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dlfcn.h>
 #include <random>
 #include <string>
 #include <type_traits>
@@ -22,13 +23,21 @@ struct Timing
   f64 avg_ms = 0.0;
 };
 
-static const char *shader_dir()
+static std::string shader_dir()
 {
-#ifdef VKBENCH_SHADER_DIR
-  return VKBENCH_SHADER_DIR;
-#else
+  Dl_info info{};
+  if (dladdr(reinterpret_cast<const void *>(&shader_dir), &info) != 0 && info.dli_fname)
+  {
+    std::string path(info.dli_fname);
+    const std::string::size_type pos = path.find_last_of('/');
+    if (pos != std::string::npos)
+    {
+      path.resize(pos);
+      path += "/shaders";
+      return path;
+    }
+  }
   return "./shaders";
-#endif
 }
 
 static std::vector<f32> make_random(usize n, u32 seed, f32 lo = -1.0f, f32 hi = 1.0f)
@@ -167,7 +176,7 @@ static VkDescriptorBufferInfo buffer_info(const VkBufferHandle &buf)
 
 static std::string shader_path(const std::string &name)
 {
-  std::string path(shader_dir());
+  std::string path = shader_dir();
   if (!path.empty() && path.back() != '/') { path += '/'; }
   path += name;
   path += ".spv";

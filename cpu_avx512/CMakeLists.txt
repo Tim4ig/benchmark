@@ -21,8 +21,6 @@ target_include_directories(cpu_avx512 PRIVATE
 
 target_compile_features(cpu_avx512 PRIVATE cxx_std_17)
 
-target_compile_definitions(cpu_avx512 PRIVATE BENCH_USE_AVX512=1 BENCH_USE_AVX2=1 BENCH_DISABLE_VECTOR_PREFIX=1)
-
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(cpu_avx512 PRIVATE -O3 -mavx512f -mavx512dq -mavx512bw -mavx512vl -mfma)
 elseif (MSVC)
