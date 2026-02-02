@@ -1,0 +1,22 @@
+# Build directories
+build/
+cmake-build-*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Compiled shaders
+*.spv
+
+# Compiled objects
+*.o
+*.so
+*.a
+*.dylib
+
+# OS
+.DS_Store
+Thumbs.db
