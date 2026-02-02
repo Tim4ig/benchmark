@@ -34,10 +34,7 @@ namespace bench
     std::mt19937 rng(seed);
     std::uniform_real_distribution<f32> dist(lo, hi);
     std::vector<f32> data(n);
-    for (usize i = 0; i < n; ++i)
-    {
-      data[i] = dist(rng);
-    }
+    for (usize i = 0; i < n; ++i) { data[i] = dist(rng); }
     return data;
   }
 
@@ -47,10 +44,7 @@ namespace bench
     const u32 hi = max_value > 0 ? max_value - 1u : 0u;
     std::uniform_int_distribution<u32> dist(0u, hi);
     std::vector<u32> data(n);
-    for (usize i = 0; i < n; ++i)
-    {
-      data[i] = dist(rng);
-    }
+    for (usize i = 0; i < n; ++i) { data[i] = dist(rng); }
     return data;
   }
 
@@ -98,18 +92,9 @@ namespace bench
     const usize k = ksize == 0 ? 1 : ksize;
     auto kernel = make_random(k * k, seed);
     f32 sum = 0.0f;
-    for (f32 v: kernel)
-    {
-      sum += v;
-    }
-    if (sum == 0.0f)
-    {
-      return kernel;
-    }
-    for (f32 &v: kernel)
-    {
-      v /= sum;
-    }
+    for (f32 v: kernel) { sum += v; }
+    if (sum == 0.0f) { return kernel; }
+    for (f32 &v: kernel) { v /= sum; }
     return kernel;
   }
 
@@ -117,10 +102,7 @@ namespace bench
   {
     using clock = std::chrono::steady_clock;
     const auto start = clock::now();
-    for (i32 i = 0; i < repeats; ++i)
-    {
-      fn();
-    }
+    for (i32 i = 0; i < repeats; ++i) { fn(); }
     const auto end = clock::now();
     const f64 total_ms =
         std::chrono::duration_cast<std::chrono::duration<f64, std::milli> >(end - start).count();
@@ -151,10 +133,7 @@ namespace bench
   inline bool parse_arg_value(i32 argc, char **argv, i32 &i, const std::string &name, usize &out)
   {
     std::string value;
-    if (!parse_arg_value(argc, argv, i, name, value))
-    {
-      return false;
-    }
+    if (!parse_arg_value(argc, argv, i, name, value)) { return false; }
     out = static_cast<usize>(std::stoull(value));
     return true;
   }
@@ -162,10 +141,7 @@ namespace bench
   inline bool parse_arg_value(i32 argc, char **argv, i32 &i, const std::string &name, i32 &out)
   {
     std::string value;
-    if (!parse_arg_value(argc, argv, i, name, value))
-    {
-      return false;
-    }
+    if (!parse_arg_value(argc, argv, i, name, value)) { return false; }
     out = std::stoi(value);
     return true;
   }
@@ -173,10 +149,7 @@ namespace bench
   inline bool parse_arg_value(i32 argc, char **argv, i32 &i, const std::string &name, u32 &out)
   {
     std::string value;
-    if (!parse_arg_value(argc, argv, i, name, value))
-    {
-      return false;
-    }
+    if (!parse_arg_value(argc, argv, i, name, value)) { return false; }
     out = static_cast<u32>(std::stoul(value));
     return true;
   }
@@ -196,20 +169,14 @@ namespace bench
   inline f64 checksum(const f32 *data, usize n)
   {
     f64 sum = 0.0;
-    for (usize i = 0; i < n; ++i)
-    {
-      sum += static_cast<f64>(data[i]);
-    }
+    for (usize i = 0; i < n; ++i) { sum += static_cast<f64>(data[i]); }
     return sum;
   }
 
   inline f64 checksum_u32(const u32 *data, usize n)
   {
     f64 sum = 0.0;
-    for (usize i = 0; i < n; ++i)
-    {
-      sum += static_cast<f64>(data[i]);
-    }
+    for (usize i = 0; i < n; ++i) { sum += static_cast<f64>(data[i]); }
     return sum;
   }
 } // namespace bench

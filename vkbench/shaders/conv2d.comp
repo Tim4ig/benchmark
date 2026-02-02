@@ -1,0 +1,47 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer InBuf {
+    float in_data[];
+} ib;
+
+layout(set = 0, binding = 1) readonly buffer KernelBuf {
+    float kernel_data[];
+} kb;
+
+layout(set = 0, binding = 2) writeonly buffer OutBuf {
+    float out_data[];
+} ob;
+
+layout(push_constant) uniform Params {
+    uint width;
+    uint height;
+    uint ksize;
+} p;
+
+void main() {
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    if (x >= p.width || y >= p.height) {
+        return;
+    }
+    uint radius = p.ksize / 2;
+    float acc = 0.0;
+    for (uint ky = 0; ky < p.ksize; ++ky) {
+        int sy = int(y) + int(ky) - int(radius);
+        if (sy < 0 || sy >= int(p.height)) {
+            continue;
+        }
+        for (uint kx = 0; kx < p.ksize; ++kx) {
+            int sx = int(x) + int(kx) - int(radius);
+            if (sx < 0 || sx >= int(p.width)) {
+                continue;
+            }
+            float v = ib.in_data[uint(sy) * p.width + uint(sx)];
+            float k = kb.kernel_data[ky * p.ksize + kx];
+            acc += v * k;
+        }
+    }
+    ob.out_data[y * p.width + x] = acc;
+}

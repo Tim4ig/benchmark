@@ -1,11 +1,11 @@
-#include "cpu_ref_runner.h"
+#include "cpu_avx512_runner.h"
 
 #include "algos/algorithms.h"
 #include "../bench_settings.h"
 
 namespace bench
 {
-  namespace cpu_ref
+  namespace cpu_avx512
   {
     namespace
     {
@@ -17,7 +17,7 @@ namespace bench
       }
     } // namespace
 
-    BenchResult CpuRefRunner::Run(const BenchOptions &options) const
+    BenchResult CpuAvx512Runner::Run(const BenchOptions &options) const
     {
       BenchOptions resolved = bench::ResolveOptions(options);
 
@@ -26,5 +26,5 @@ namespace bench
 
       return algorithm->Run(resolved);
     }
-  } // namespace cpu_ref
+  } // namespace cpu_avx512
 } // namespace bench

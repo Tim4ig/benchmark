@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "../common_abi/bench_abi.h"
+#include "../bench_settings.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -69,10 +70,7 @@ namespace
 
   static void close_library(Library &lib)
   {
-    if (!lib.handle)
-    {
-      return;
-    }
+    if (!lib.handle) { return; }
 #if defined(_WIN32)
     FreeLibrary(lib.handle);
 #else
@@ -80,19 +78,6 @@ namespace
 #endif
     lib.handle = nullptr;
     lib.api = nullptr;
-  }
-
-  static BenchOptions default_options()
-  {
-    BenchOptions opt{};
-    opt.algo = BENCH_ALGO_VECADD;
-    opt.repeats = 5;
-    opt.seed = 1234;
-    opt.n = 0;
-    opt.bins = 256;
-    opt.nnz_per_row = 16;
-    opt.ksize = 3;
-    return opt;
   }
 
   static const char *algo_name(BenchAlgo algo)
@@ -122,10 +107,7 @@ namespace
 int main(int argc, char **argv)
 {
   std::vector<std::string> libs;
-  for (int i = 1; i < argc; ++i)
-  {
-    libs.emplace_back(argv[i]);
-  }
+  for (int i = 1; i < argc; ++i) { libs.emplace_back(argv[i]); }
 
   if (libs.empty())
   {
@@ -151,14 +133,11 @@ int main(int argc, char **argv)
     for (u32 i = 0; i < count; ++i)
     {
       const BenchEntry &entry = entries[i];
-      BenchOptions opt = default_options();
+      BenchOptions opt = bench::DefaultOptions();
       opt.algo = entry.algo;
       BenchResult result{};
       const int rc = lib.api->run(&opt, &result);
-      if (rc != 0)
-      {
-        result.status = rc;
-      }
+      if (rc != 0) { result.status = rc; }
       print_result(backend, entry.name ? entry.name : algo_name(entry.algo), opt, result);
     }
 

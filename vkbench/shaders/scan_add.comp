@@ -1,0 +1,25 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer OutBuf {
+    float out_data[];
+} ob;
+
+layout(set = 0, binding = 1) readonly buffer OffBuf {
+    float offsets[];
+} ofb;
+
+layout(push_constant) uniform Params {
+    uint n;
+} p;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= p.n) {
+        return;
+    }
+    uint block = gid / 256;
+    float offset = ofb.offsets[block];
+    ob.out_data[gid] += offset;
+}

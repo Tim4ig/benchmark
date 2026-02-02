@@ -1,0 +1,41 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer RowBuf {
+    uint row_ptr[];
+} rb;
+
+layout(set = 0, binding = 1) readonly buffer ColBuf {
+    uint col_idx[];
+} cb;
+
+layout(set = 0, binding = 2) readonly buffer ValBuf {
+    float values[];
+} vb;
+
+layout(set = 0, binding = 3) readonly buffer XBuf {
+    float x[];
+} xb;
+
+layout(set = 0, binding = 4) writeonly buffer YBuf {
+    float y[];
+} yb;
+
+layout(push_constant) uniform Params {
+    uint rows;
+} p;
+
+void main() {
+    uint row = gl_GlobalInvocationID.x;
+    if (row >= p.rows) {
+        return;
+    }
+    uint start = rb.row_ptr[row];
+    uint end = rb.row_ptr[row + 1];
+    float sum = 0.0;
+    for (uint idx = start; idx < end; ++idx) {
+        sum += vb.values[idx] * xb.x[cb.col_idx[idx]];
+    }
+    yb.y[row] = sum;
+}

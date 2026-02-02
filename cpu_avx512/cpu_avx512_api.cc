@@ -1,6 +1,6 @@
 #include "../common_abi/bench_abi.h"
 #include "../common_abi/types.h"
-#include "cpu_ref_runner.h"
+#include "cpu_avx512_runner.h"
 
 namespace
 {
@@ -10,7 +10,7 @@ namespace
     {"matmul", BENCH_ALGO_MATMUL},
   };
 
-  const char *GetName() { return "cpu_ref"; }
+  const char *GetName() { return "cpu_avx512"; }
 
   u32 GetEntries(const BenchEntry **out_entries)
   {
@@ -22,7 +22,7 @@ namespace
   {
     if (!options || !out_result) { return -1; }
 
-    const bench::cpu_ref::CpuRefRunner runner;
+    const bench::cpu_avx512::CpuAvx512Runner runner;
     BenchResult result = runner.Run(*options);
     *out_result = result;
     return result.status;

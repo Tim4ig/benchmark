@@ -1,0 +1,25 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer DataBuf {
+    uint data[];
+} db;
+
+layout(set = 0, binding = 1) buffer BinBuf {
+    uint bins[];
+} bb;
+
+layout(push_constant) uniform Params {
+    uint n;
+    uint nbins;
+} p;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= p.n) {
+        return;
+    }
+    uint idx = db.data[gid] % p.nbins;
+    atomicAdd(bb.bins[idx], 1);
+}

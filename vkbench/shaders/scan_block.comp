@@ -1,0 +1,54 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer InBuf {
+    float in_data[];
+} ib;
+
+layout(set = 0, binding = 1) writeonly buffer OutBuf {
+    float out_data[];
+} ob;
+
+layout(set = 0, binding = 2) writeonly buffer BlockBuf {
+    float block_sums[];
+} bb;
+
+layout(push_constant) uniform Params {
+    uint n;
+} p;
+
+shared float sdata[256];
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    uint tid = gl_LocalInvocationID.x;
+
+    float v = 0.0;
+    if (gid < p.n) {
+        v = ib.in_data[gid];
+    }
+    sdata[tid] = v;
+    memoryBarrierShared();
+    barrier();
+
+    for (uint offset = 1; offset < 256; offset <<= 1) {
+        float add = 0.0;
+        if (tid >= offset) {
+            add = sdata[tid - offset];
+        }
+        memoryBarrierShared();
+        barrier();
+        sdata[tid] += add;
+        memoryBarrierShared();
+        barrier();
+    }
+
+    if (gid < p.n) {
+        ob.out_data[gid] = sdata[tid];
+    }
+
+    if (tid == 255) {
+        bb.block_sums[gl_WorkGroupID.x] = sdata[tid];
+    }
+}

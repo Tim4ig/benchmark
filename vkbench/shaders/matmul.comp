@@ -1,0 +1,33 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer ABuf {
+    float a[];
+} ab;
+
+layout(set = 0, binding = 1) readonly buffer BBuf {
+    float b[];
+} bb;
+
+layout(set = 0, binding = 2) writeonly buffer CBuf {
+    float c[];
+} cb;
+
+layout(push_constant) uniform Params {
+    uint n;
+} p;
+
+void main() {
+    uint col = gl_GlobalInvocationID.x;
+    uint row = gl_GlobalInvocationID.y;
+    if (row >= p.n || col >= p.n) {
+        return;
+    }
+    float sum = 0.0;
+    uint row_offset = row * p.n;
+    for (uint k = 0; k < p.n; ++k) {
+        sum += ab.a[row_offset + k] * bb.b[k * p.n + col];
+    }
+    cb.c[row_offset + col] = sum;
+}
