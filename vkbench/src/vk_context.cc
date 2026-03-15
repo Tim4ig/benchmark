@@ -1,43 +1,41 @@
 #include "vk_context.hpp"
 
+#include "vk_common.hpp"
+
 #include <algorithm>
 #include <cstring>
 #include <vector>
 
-#include "vk_common.hpp"
-
-namespace
-{
-  bool layer_available(const char *name)
-  {
-    uint32_t count = 0;
-    VK_CHECK(vkEnumerateInstanceLayerProperties(&count, nullptr));
-    std::vector<VkLayerProperties> layers(count);
-    VK_CHECK(vkEnumerateInstanceLayerProperties(&count, layers.data()));
-    for (const auto &layer: layers) { if (std::strcmp(layer.layerName, name) == 0) { return true; } }
-    return false;
-  }
-
-  bool device_is_suitable(VkPhysicalDevice device, uint32_t &queue_family)
-  {
-    uint32_t count = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
-    std::vector<VkQueueFamilyProperties> props(count);
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, props.data());
-    for (uint32_t i = 0; i < count; ++i)
-    {
-      if (props[i].queueFlags & VK_QUEUE_COMPUTE_BIT)
-      {
-        queue_family = i;
-        return true;
-      }
+namespace {
+bool layer_available(const char* name) {
+  uint32_t count = 0;
+  VK_CHECK(vkEnumerateInstanceLayerProperties(&count, nullptr));
+  std::vector<VkLayerProperties> layers(count);
+  VK_CHECK(vkEnumerateInstanceLayerProperties(&count, layers.data()));
+  for (const auto& layer : layers) {
+    if (std::strcmp(layer.layerName, name) == 0) {
+      return true;
     }
-    return false;
   }
+  return false;
+}
+
+bool device_is_suitable(VkPhysicalDevice device, uint32_t& queue_family) {
+  uint32_t count = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+  std::vector<VkQueueFamilyProperties> props(count);
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &count, props.data());
+  for (uint32_t i = 0; i < count; ++i) {
+    if (props[i].queueFlags & VK_QUEUE_COMPUTE_BIT) {
+      queue_family = i;
+      return true;
+    }
+  }
+  return false;
+}
 } // namespace
 
-bool vk_init(VkContext &ctx, bool enable_validation)
-{
+bool vk_init(VkContext& ctx, bool enable_validation) {
   VkApplicationInfo app_info{};
   app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
   app_info.pApplicationName = "vkbench";
@@ -46,9 +44,8 @@ bool vk_init(VkContext &ctx, bool enable_validation)
   app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
   app_info.apiVersion = VK_API_VERSION_1_1;
 
-  std::vector<const char *> layers;
-  if (enable_validation && layer_available("VK_LAYER_KHRONOS_validation"))
-  {
+  std::vector<const char*> layers;
+  if (enable_validation && layer_available("VK_LAYER_KHRONOS_validation")) {
     layers.push_back("VK_LAYER_KHRONOS_validation");
   }
 
@@ -62,7 +59,9 @@ bool vk_init(VkContext &ctx, bool enable_validation)
 
   uint32_t device_count = 0;
   VK_CHECK(vkEnumeratePhysicalDevices(ctx.instance, &device_count, nullptr));
-  if (device_count == 0) { return false; }
+  if (device_count == 0) {
+    return false;
+  }
   std::vector<VkPhysicalDevice> devices(device_count);
   VK_CHECK(vkEnumeratePhysicalDevices(ctx.instance, &device_count, devices.data()));
 
@@ -70,24 +69,29 @@ bool vk_init(VkContext &ctx, bool enable_validation)
   uint32_t chosen_queue_family = 0;
   int best_score = -1;
 
-  for (VkPhysicalDevice device: devices)
-  {
+  for (VkPhysicalDevice device : devices) {
     uint32_t qf = 0;
-    if (!device_is_suitable(device, qf)) { continue; }
+    if (!device_is_suitable(device, qf)) {
+      continue;
+    }
     VkPhysicalDeviceProperties props{};
     vkGetPhysicalDeviceProperties(device, &props);
     int score = 0;
-    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) { score = 2; } else if (
-      props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) { score = 1; }
-    if (score > best_score)
-    {
+    if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+      score = 2;
+    } else if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+      score = 1;
+    }
+    if (score > best_score) {
       best_score = score;
       chosen = device;
       chosen_queue_family = qf;
     }
   }
 
-  if (chosen == VK_NULL_HANDLE) { return false; }
+  if (chosen == VK_NULL_HANDLE) {
+    return false;
+  }
 
   ctx.physical_device = chosen;
   ctx.queue_family = chosen_queue_family;
@@ -125,22 +129,27 @@ bool vk_init(VkContext &ctx, bool enable_validation)
   return true;
 }
 
-void vk_destroy(VkContext &ctx)
-{
-  if (ctx.device != VK_NULL_HANDLE) { vkDeviceWaitIdle(ctx.device); }
-  if (ctx.command_pool != VK_NULL_HANDLE) { vkDestroyCommandPool(ctx.device, ctx.command_pool, nullptr); }
-  if (ctx.device != VK_NULL_HANDLE) { vkDestroyDevice(ctx.device, nullptr); }
-  if (ctx.instance != VK_NULL_HANDLE) { vkDestroyInstance(ctx.instance, nullptr); }
+void vk_destroy(VkContext& ctx) {
+  if (ctx.device != VK_NULL_HANDLE) {
+    vkDeviceWaitIdle(ctx.device);
+  }
+  if (ctx.command_pool != VK_NULL_HANDLE) {
+    vkDestroyCommandPool(ctx.device, ctx.command_pool, nullptr);
+  }
+  if (ctx.device != VK_NULL_HANDLE) {
+    vkDestroyDevice(ctx.device, nullptr);
+  }
+  if (ctx.instance != VK_NULL_HANDLE) {
+    vkDestroyInstance(ctx.instance, nullptr);
+  }
   ctx = VkContext{};
 }
 
-uint32_t vk_find_memory_type(const VkContext &ctx, uint32_t type_bits,
-                             VkMemoryPropertyFlags properties)
-{
-  for (uint32_t i = 0; i < ctx.memory_properties.memoryTypeCount; ++i)
-  {
-    if ((type_bits & (1u << i)) &&
-        (ctx.memory_properties.memoryTypes[i].propertyFlags & properties) == properties) { return i; }
+uint32_t vk_find_memory_type(const VkContext& ctx, uint32_t type_bits, VkMemoryPropertyFlags properties) {
+  for (uint32_t i = 0; i < ctx.memory_properties.memoryTypeCount; ++i) {
+    if ((type_bits & (1u << i)) && (ctx.memory_properties.memoryTypes[i].propertyFlags & properties) == properties) {
+      return i;
+    }
   }
   return UINT32_MAX;
 }

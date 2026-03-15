@@ -1,58 +1,21 @@
-#ifndef CPU_REF_ALGOS_ALGORITHMS_H_
-#define CPU_REF_ALGOS_ALGORITHMS_H_
+#pragma once
 
-#include <memory>
-
+#include "../../cpu_scalar/algos/algorithms.h"
 #include "algorithm.h"
 
-namespace bench
-{
-  namespace cpu_ref
-  {
-    class VecAddAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+namespace bench::cpu_ref {
+using bench::cpu_scalar::BitonicSortAlgorithm;
+using bench::cpu_scalar::BlackScholesAlgorithm;
+using bench::cpu_scalar::Conv2dAlgorithm;
+using bench::cpu_scalar::HistogramAlgorithm;
+using bench::cpu_scalar::MatmulAlgorithm;
+using bench::cpu_scalar::NBodyAlgorithm;
+using bench::cpu_scalar::PrefixAlgorithm;
+using bench::cpu_scalar::ReduceAlgorithm;
+using bench::cpu_scalar::SpmvAlgorithm;
+using bench::cpu_scalar::VecAddAlgorithm;
 
-    class ReduceAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
-
-    class PrefixAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
-
-    class HistogramAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
-
-    class Conv2dAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
-
-    class SpmvAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
-
-    class MatmulAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
-
-    std::unique_ptr<Algorithm> CreateAlgorithm(BenchAlgo algo);
-  } // namespace cpu_ref
-} // namespace bench
-
-#endif  // CPU_REF_ALGOS_ALGORITHMS_H_
+inline std::unique_ptr<Algorithm> create_algorithm(const BenchAlgo algo) {
+  return bench::cpu_scalar::create_algorithm(algo);
+}
+} // namespace bench::cpu_ref

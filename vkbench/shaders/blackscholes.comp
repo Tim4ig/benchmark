@@ -1,0 +1,41 @@
+#version 450
+layout(local_size_x = 256) in;
+
+layout(binding = 0) buffer BufS   { float S[]; };
+layout(binding = 1) buffer BufOut { float out_price[]; };
+
+layout(push_constant) uniform Push {
+    uint  n;
+    float K;
+    float T;
+    float r;
+    float sigma;
+} push;
+
+// Abramowitz & Stegun rational approximation for N(x), max error ~7.5e-8
+float normcdf(float x) {
+    const float a1 =  0.319381530;
+    const float a2 = -0.356563782;
+    const float a3 =  1.781477937;
+    const float a4 = -1.821255978;
+    const float a5 =  1.330274429;
+    const float p  =  0.2316419;
+    float sign = (x < 0.0) ? -1.0 : 1.0;
+    float ax = abs(x);
+    float t = 1.0 / (1.0 + p * ax);
+    float y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t
+                    * exp(-0.5 * ax * ax) * 0.3989422804;
+    return 0.5 * (1.0 + sign * (2.0 * y - 1.0));
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= push.n) return;
+
+    float Si          = S[i];
+    float sigma_sqrtT = push.sigma * sqrt(push.T);
+    float d1 = (log(Si / push.K) + (push.r + 0.5 * push.sigma * push.sigma) * push.T) / sigma_sqrtT;
+    float d2 = d1 - sigma_sqrtT;
+    float discount = push.K * exp(-push.r * push.T);
+    out_price[i] = Si * normcdf(d1) - discount * normcdf(d2);
+}

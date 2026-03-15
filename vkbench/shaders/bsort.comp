@@ -1,0 +1,36 @@
+#version 450
+// Bitonic sort - one dispatch per (stage, step) pair.
+// Each thread handles one compare-and-swap pair: (tid, tid ^ step).
+layout(local_size_x = 256) in;
+
+layout(binding = 0) buffer Data { float data[]; };
+
+layout(push_constant) uniform Push {
+    uint n;
+    uint step;    // current compare stride
+    uint stage;   // current stage (determines sort direction block size = 2*stage)
+} push;
+
+void main() {
+    uint tid = gl_GlobalInvocationID.x;
+    if (tid >= push.n / 2) return;
+
+    // Compute left index of the compare-swap pair
+    uint pair_dist  = push.step;
+    uint block_size = pair_dist * 2;
+    uint left  = (tid / pair_dist) * block_size + (tid % pair_dist);
+    uint right = left + pair_dist;
+
+    if (right >= push.n) return;
+
+    // Sort direction: ascending if (left / (2*stage)) is even
+    uint dir_block = push.stage * 2;
+    bool ascending = ((left / dir_block) & 1u) == 0u;
+
+    float l = data[left];
+    float r = data[right];
+    if (ascending ? (l > r) : (l < r)) {
+        data[left]  = r;
+        data[right] = l;
+    }
+}

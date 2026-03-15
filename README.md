@@ -1,128 +1,113 @@
 # cpugpu-bench
 
-## Getting started
+`cpugpu-bench` is a plugin-based benchmark suite for comparing the same algorithm set across several backends:
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- `cpu_ref`: scalar baseline, built for readability and correctness
+- `cpu_auto`: the same scalar algorithm layer, compiled with aggressive optimization and auto-vectorization
+- `cpu_avx512`: manually vectorized AVX-512 kernels
+- `cpu_mt`: multi-threaded CPU backend that reuses the AVX-512 kernels
+- `vulkan`: GPU backend implemented with Vulkan compute shaders
+- `hybrid`: direct CPU+GPU co-execution backend for selected compute-heavy kernels
 
-Already a pro? Just edit this README.md and make it your own. Want to make it
-easy? [Use the template at the bottom](#editing-this-readme)!
+The project is organized around one shared C ABI. Every backend is built as a `.so` and loaded at runtime by `bench_orchestrator`.
 
-## Add your files
+## Algorithms
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file)
-  or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or
-  push an existing Git repository with the following command:
+The benchmark catalog currently includes 10 workloads:
 
+- `vecadd`
+- `reduce`
+- `prefix`
+- `hist`
+- `conv2d`
+- `spmv`
+- `matmul`
+- `blackscholes`
+- `bsort`
+- `nbody`
+
+Default problem sizes live in [`bench_settings.h`](./bench_settings.h). CPU reference and auto-vectorized implementations share one source tree in [`cpu_scalar/`](./cpu_scalar).
+
+## Build Requirements
+
+- CMake 3.16+
+- A C++17 compiler
+- Python 3 for plotting and CSV validation
+- `matplotlib` and `numpy` for plots
+- Vulkan runtime and development headers for `vkbench`
+- `glslangValidator` to compile GLSL shaders to SPIR-V
+
+## Build
+
+```bash
+cmake -S . -B build/root -DCMAKE_BUILD_TYPE=Release
+cmake --build build/root -j"$(nproc)"
 ```
-cd existing_repo
-git remote add origin https://git.kpi.fei.tuke.sk/kpi-zp/2026/bp.tymur.kramar/workspace/cpugpu-bench.git
-git branch -M main
-git push -uf origin main
+
+## Run
+
+The easiest path is the automation script:
+
+```bash
+./scripts/run_bench.sh build/root results
 ```
 
-## Integrate with your tools
+That script:
 
-- [ ] [Set up project integrations](https://git.kpi.fei.tuke.sk/kpi-zp/2026/bp.tymur.kramar/workspace/cpugpu-bench/-/settings/integrations)
+- builds the project
+- runs all discovered backends
+- writes a timestamped CSV and updates `results/latest.csv`
+- validates analytical metrics and checksum consistency
+- generates plots in `results/plots_<timestamp>/`
 
-## Collaborate with your team
+You can also run the orchestrator directly:
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+```bash
+./build/root/orchestrator/bench_orchestrator \
+  --csv results/manual.csv \
+  ./build/root/cpu_ref/libcpu_ref.so \
+  ./build/root/cpu_auto/libcpu_auto.so \
+  ./build/root/cpu_avx512/libcpu_avx512.so \
+  ./build/root/cpu_mt/libcpu_mt.so \
+  ./build/root/vkbench/libvkbench.so \
+  ./build/root/hybrid/libhybrid.so
+```
 
-## Test and Deploy
+## Result Semantics
 
-Use the built-in continuous integration in GitLab.
+Each CSV row contains:
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+- `total_ms`: total wall time across all repeats
+- `calc_ms`: average time per repeat
+- `flops`: analytical operation count for the benchmarked workload
+- `bytes_moved`: analytical logical data movement for the same workload
+- `gflops`: `flops / (calc_ms * 1e6)`
+- `gbytes`: `bytes_moved / (calc_ms * 1e6)`
+- `checksum`: lightweight output sanity signal
 
-***
+The validator is available as a standalone script:
 
-# Editing this README
+```bash
+python3 scripts/validate_results.py results/latest.csv
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to
-structure it however you want - this is just a starting point!). Thanks
-to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Important Note About `hybrid`
 
-## Suggestions for a good README
+`hybrid` now implements direct shared-input CPU+GPU execution for:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are
-suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long
-is better than too short. If you think your README is too long, consider utilizing another form of documentation rather
-than cutting out information.
+- `matmul`
+- `nbody`
 
-## Name
+These paths keep one deterministic input and split the output domain between CPU and GPU, so their checksum is directly comparable to the other backends.
 
-Choose a self-explaining name for your project.
+The hybrid backend is still intentionally narrow in scope. It only exposes kernels where the split is structurally clean and worth demonstrating.
 
-## Description
+## Documentation
 
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be
-unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your
-project, this is a good place to list differentiating factors.
-
-## Badges
-
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the
-project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see
-GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew.
-However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing
-specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a
-specific context like a particular programming language version or operating system or has dependencies that have to be
-installed manually, also add a Requirements subsection.
-
-## Usage
-
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of
-usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably
-include in the README.
-
-## Support
-
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address,
-etc.
-
-## Roadmap
-
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started.
-Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps
-explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce
-the likelihood that the changes inadvertently break something. Having instructions for running tests is especially
-helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-
-Show your appreciation to those who have contributed to the project.
-
-## License
-
-For open source projects, say how it is licensed.
-
-## Project status
-
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has
-slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or
-owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+- [Project overview](./docs/project_overview.md)
+- [Project structure guide](./docs/project-structure/README.md)
+- [Architecture notes](./docs/project-structure/architecture.md)
+- [Backend notes](./docs/project-structure/backends.md)
+- [Algorithm notes](./docs/project-structure/algorithms.md)
+- [Project status](./docs/completion_plan.md)
+- [Verification notes](./docs/code_review.md)

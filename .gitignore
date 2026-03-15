@@ -1,6 +1,8 @@
 # Build directories
 build/
 cmake-build-*/
+.claude
+results
 
 # IDE
 .idea/

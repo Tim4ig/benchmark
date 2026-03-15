@@ -2,35 +2,44 @@
 #include "../common_abi/types.h"
 #include "cpu_avx512_runner.h"
 
-namespace
-{
-  constexpr BenchEntry kEntries[] = {
-    {"vecadd", BENCH_ALGO_VECADD}, {"reduce", BENCH_ALGO_REDUCE}, {"prefix", BENCH_ALGO_PREFIX},
-    {"hist", BENCH_ALGO_HIST}, {"conv2d", BENCH_ALGO_CONV2D}, {"spmv", BENCH_ALGO_SPMV},
-    {"matmul", BENCH_ALGO_MATMUL},
-  };
+namespace {
+constexpr BenchEntry kEntries[] = {
+    {"vecadd", BenchAlgo::kBenchAlgoVecadd},
+    {"reduce", BenchAlgo::kBenchAlgoReduce},
+    {"prefix", BenchAlgo::kBenchAlgoPrefix},
+    {"hist", BenchAlgo::kBenchAlgoHist},
+    {"conv2d", BenchAlgo::kBenchAlgoConV2D},
+    {"spmv", BenchAlgo::kBenchAlgoSpmv},
+    {"matmul", BenchAlgo::kBenchAlgoMatmul},
+    {"blackscholes", BenchAlgo::kBenchAlgoBlackscholes},
+    {"bsort", BenchAlgo::kBenchAlgoBsort},
+    {"nbody", BenchAlgo::kBenchAlgoNbody},
+};
 
-  const char *GetName() { return "cpu_avx512"; }
+const char* get_name() {
+  return "cpu_avx512";
+}
 
-  u32 GetEntries(const BenchEntry **out_entries)
-  {
-    if (out_entries) { *out_entries = kEntries; }
-    return static_cast<u32>(sizeof(kEntries) / sizeof(kEntries[0]));
+u32 get_entries(const BenchEntry** out_entries) {
+  if (out_entries != nullptr) {
+    *out_entries = kEntries;
+  }
+  return static_cast<u32>(sizeof(kEntries) / sizeof(kEntries[0]));
+}
+
+i32 run_bench(const BenchOptions* options, BenchResult* out_result) {
+  if (options == nullptr || out_result == nullptr) {
+    return -1;
   }
 
-  i32 RunBench(const BenchOptions *options, BenchResult *out_result)
-  {
-    if (!options || !out_result) { return -1; }
-
-    const bench::cpu_avx512::CpuAvx512Runner runner;
-    BenchResult result = runner.Run(*options);
-    *out_result = result;
-    return result.status;
-  }
+  const bench::cpu_avx512::CpuAvx512Runner runner;
+  BenchResult result = runner.run(*options);
+  *out_result = result;
+  return result.status;
+}
 } // namespace
 
-extern "C" const BenchApi *bench_get_api()
-{
-  static BenchApi api{GetName, GetEntries, RunBench};
+extern "C" const BenchApi* bench_get_api() {
+  static BenchApi api{get_name, get_entries, run_bench};
   return &api;
 }

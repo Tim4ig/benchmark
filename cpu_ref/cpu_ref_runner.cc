@@ -1,30 +1,25 @@
 #include "cpu_ref_runner.h"
 
-#include "algos/algorithms.h"
 #include "../bench_settings.h"
+#include "algos/algorithms.h"
 
-namespace bench
-{
-  namespace cpu_ref
-  {
-    namespace
-    {
-      BenchResult MakeErrorResult(i32 status)
-      {
-        BenchResult result{};
-        result.status = status;
-        return result;
-      }
-    } // namespace
+namespace bench::cpu_ref {
+namespace {
+BenchResult make_error_result(i32 status) {
+  BenchResult result{};
+  result.status = status;
+  return result;
+}
+} // namespace
 
-    BenchResult CpuRefRunner::Run(const BenchOptions &options) const
-    {
-      BenchOptions resolved = bench::ResolveOptions(options);
+BenchResult CpuRefRunner::run(const BenchOptions& options) const {
+  BenchOptions resolved = bench::resolve_options(options);
 
-      auto algorithm = CreateAlgorithm(resolved.algo);
-      if (!algorithm) { return MakeErrorResult(-2); }
+  auto algorithm = create_algorithm(resolved.algo);
+  if (!algorithm) {
+    return make_error_result(-2);
+  }
 
-      return algorithm->Run(resolved);
-    }
-  } // namespace cpu_ref
-} // namespace bench
+  return algorithm->run(resolved);
+}
+} // namespace bench::cpu_ref

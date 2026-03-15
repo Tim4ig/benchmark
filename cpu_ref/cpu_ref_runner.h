@@ -1,18 +1,11 @@
-#ifndef CPU_REF_CPU_REF_RUNNER_H_
-#define CPU_REF_CPU_REF_RUNNER_H_
+#pragma once
 
 #include "../common_abi/bench_abi.h"
 
-namespace bench
-{
-  namespace cpu_ref
-  {
-    class CpuRefRunner final
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) const;
-    };
-  } // namespace cpu_ref
-} // namespace bench
+namespace bench::cpu_ref {
+class CpuRefRunner final {
+ public:
+  BenchResult run(const BenchOptions& options) const;
+};
+} // namespace bench::cpu_ref
 
-#endif  // CPU_REF_CPU_REF_RUNNER_H_

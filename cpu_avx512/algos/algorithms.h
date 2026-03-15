@@ -1,58 +1,60 @@
-#ifndef CPU_AVX512_ALGOS_ALGORITHMS_H_
-#define CPU_AVX512_ALGOS_ALGORITHMS_H_
-
-#include <memory>
+#pragma once
 
 #include "algorithm.h"
 
-namespace bench
-{
-  namespace cpu_avx512
-  {
-    class VecAddAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+#include <memory>
 
-    class ReduceAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+namespace bench::cpu_avx512 {
+class VecAddAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-    class PrefixAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+class ReduceAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-    class HistogramAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+class PrefixAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-    class Conv2dAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+class HistogramAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-    class SpmvAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+class Conv2dAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-    class MatmulAlgorithm final : public Algorithm
-    {
-    public:
-      BenchResult Run(const BenchOptions &options) override;
-    };
+class SpmvAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-    std::unique_ptr<Algorithm> CreateAlgorithm(BenchAlgo algo);
-  } // namespace cpu_avx512
-} // namespace bench
+class MatmulAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
 
-#endif  // CPU_AVX512_ALGOS_ALGORITHMS_H_
+class BlackScholesAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
+
+class BitonicSortAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
+
+class NBodyAlgorithm final : public Algorithm {
+ public:
+  BenchResult run(const BenchOptions& options) override;
+};
+
+std::unique_ptr<Algorithm> create_algorithm(BenchAlgo algo);
+} // namespace bench::cpu_avx512
+

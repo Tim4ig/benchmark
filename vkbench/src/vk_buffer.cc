@@ -1,12 +1,11 @@
 #include "vk_buffer.hpp"
 
-#include <cstring>
-
 #include "vk_common.hpp"
 
-VkBufferHandle vk_create_buffer(const VkContext &ctx, VkDeviceSize size, VkBufferUsageFlags usage,
-                                VkMemoryPropertyFlags properties)
-{
+#include <cstring>
+
+VkBufferHandle
+vk_create_buffer(const VkContext& ctx, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) {
   VkBufferHandle handle;
   handle.size = size;
   handle.properties = properties;
@@ -23,8 +22,7 @@ VkBufferHandle vk_create_buffer(const VkContext &ctx, VkDeviceSize size, VkBuffe
   vkGetBufferMemoryRequirements(ctx.device, handle.buffer, &mem_req);
 
   uint32_t memory_type = vk_find_memory_type(ctx, mem_req.memoryTypeBits, properties);
-  if (memory_type == UINT32_MAX)
-  {
+  if (memory_type == UINT32_MAX) {
     vkDestroyBuffer(ctx.device, handle.buffer, nullptr);
     handle.buffer = VK_NULL_HANDLE;
     return handle;
@@ -41,17 +39,20 @@ VkBufferHandle vk_create_buffer(const VkContext &ctx, VkDeviceSize size, VkBuffe
   return handle;
 }
 
-void vk_destroy_buffer(const VkContext &ctx, VkBufferHandle &buf)
-{
-  if (buf.buffer != VK_NULL_HANDLE) { vkDestroyBuffer(ctx.device, buf.buffer, nullptr); }
-  if (buf.memory != VK_NULL_HANDLE) { vkFreeMemory(ctx.device, buf.memory, nullptr); }
+void vk_destroy_buffer(const VkContext& ctx, VkBufferHandle& buf) {
+  if (buf.buffer != VK_NULL_HANDLE) {
+    vkDestroyBuffer(ctx.device, buf.buffer, nullptr);
+  }
+  if (buf.memory != VK_NULL_HANDLE) {
+    vkFreeMemory(ctx.device, buf.memory, nullptr);
+  }
   buf = VkBufferHandle{};
 }
 
-static void flush_if_needed(const VkContext &ctx, VkBufferHandle &buf, VkDeviceSize size,
-                            VkDeviceSize offset)
-{
-  if (buf.properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) { return; }
+static void flush_if_needed(const VkContext& ctx, VkBufferHandle& buf, VkDeviceSize size, VkDeviceSize offset) {
+  if (buf.properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
+    return;
+  }
   VkMappedMemoryRange range{};
   range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
   range.memory = buf.memory;
@@ -60,10 +61,10 @@ static void flush_if_needed(const VkContext &ctx, VkBufferHandle &buf, VkDeviceS
   VK_CHECK(vkFlushMappedMemoryRanges(ctx.device, 1, &range));
 }
 
-static void invalidate_if_needed(const VkContext &ctx, VkBufferHandle &buf, VkDeviceSize size,
-                                 VkDeviceSize offset)
-{
-  if (buf.properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) { return; }
+static void invalidate_if_needed(const VkContext& ctx, VkBufferHandle& buf, VkDeviceSize size, VkDeviceSize offset) {
+  if (buf.properties & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
+    return;
+  }
   VkMappedMemoryRange range{};
   range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
   range.memory = buf.memory;
@@ -72,20 +73,17 @@ static void invalidate_if_needed(const VkContext &ctx, VkBufferHandle &buf, VkDe
   VK_CHECK(vkInvalidateMappedMemoryRanges(ctx.device, 1, &range));
 }
 
-void vk_write_buffer(const VkContext &ctx, VkBufferHandle &buf, const void *data,
-                     VkDeviceSize size, VkDeviceSize offset)
-{
-  void *mapped = nullptr;
+void vk_write_buffer(
+    const VkContext& ctx, VkBufferHandle& buf, const void* data, VkDeviceSize size, VkDeviceSize offset) {
+  void* mapped = nullptr;
   VK_CHECK(vkMapMemory(ctx.device, buf.memory, offset, size, 0, &mapped));
   std::memcpy(mapped, data, static_cast<std::size_t>(size));
   flush_if_needed(ctx, buf, size, offset);
   vkUnmapMemory(ctx.device, buf.memory);
 }
 
-void vk_read_buffer(const VkContext &ctx, VkBufferHandle &buf, void *data, VkDeviceSize size,
-                    VkDeviceSize offset)
-{
-  void *mapped = nullptr;
+void vk_read_buffer(const VkContext& ctx, VkBufferHandle& buf, void* data, VkDeviceSize size, VkDeviceSize offset) {
+  void* mapped = nullptr;
   VK_CHECK(vkMapMemory(ctx.device, buf.memory, offset, size, 0, &mapped));
   invalidate_if_needed(ctx, buf, size, offset);
   std::memcpy(data, mapped, static_cast<std::size_t>(size));

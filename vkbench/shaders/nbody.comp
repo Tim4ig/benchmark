@@ -1,0 +1,40 @@
+#version 450
+// N-body: each thread computes gravitational acceleration on ONE particle
+// from all other particles. O(n^2) total work.
+layout(local_size_x = 256) in;
+
+layout(binding = 0) buffer PosX { float pos_x[]; };
+layout(binding = 1) buffer PosY { float pos_y[]; };
+layout(binding = 2) buffer Mass { float mass[];  };
+layout(binding = 3) buffer FX   { float force_x[]; };
+layout(binding = 4) buffer FY   { float force_y[]; };
+
+layout(push_constant) uniform Push {
+    uint  source_n;
+    uint  target_n;
+    float softening2; // softening^2
+} push;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= push.target_n) return;
+
+    float xi = pos_x[i];
+    float yi = pos_y[i];
+    float ax = 0.0, ay = 0.0;
+
+    for (uint j = 0; j < push.source_n; ++j) {
+        if (j == i) continue;
+        float dx = pos_x[j] - xi;
+        float dy = pos_y[j] - yi;
+        float dist2 = dx * dx + dy * dy + push.softening2;
+        float inv_d  = inversesqrt(dist2);
+        float inv_d3 = inv_d * inv_d * inv_d;
+        float f = mass[j] * inv_d3;
+        ax += f * dx;
+        ay += f * dy;
+    }
+
+    force_x[i] = ax;
+    force_y[i] = ay;
+}

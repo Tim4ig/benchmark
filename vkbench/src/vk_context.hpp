@@ -2,11 +2,9 @@
 
 #include <cstdint>
 #include <vector>
-
 #include <vulkan/vulkan.h>
 
-struct VkContext
-{
+struct VkContext {
   VkInstance instance = VK_NULL_HANDLE;
   VkPhysicalDevice physical_device = VK_NULL_HANDLE;
   VkDevice device = VK_NULL_HANDLE;
@@ -19,7 +17,6 @@ struct VkContext
   VkPhysicalDeviceMemoryProperties memory_properties{};
 };
 
-bool vk_init(VkContext &ctx, bool enable_validation);
-void vk_destroy(VkContext &ctx);
-uint32_t vk_find_memory_type(const VkContext &ctx, uint32_t type_bits,
-                             VkMemoryPropertyFlags properties);
+bool vk_init(VkContext& ctx, bool enable_validation);
+void vk_destroy(VkContext& ctx);
+uint32_t vk_find_memory_type(const VkContext& ctx, uint32_t type_bits, VkMemoryPropertyFlags properties);
