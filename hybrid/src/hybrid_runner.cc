@@ -5,6 +5,7 @@
 #include "../../vkbench/src/vk_common.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -25,6 +26,14 @@ struct Timing {
   f64 total_ms = 0.0;
   f64 avg_ms = 0.0;
 };
+
+template <typename Fn> f64 time_ms_fn(Fn&& fn) {
+  using clock = std::chrono::steady_clock;
+  const auto start = clock::now();
+  fn();
+  const auto end = clock::now();
+  return std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(end - start).count();
+}
 
 struct NBodyPush {
   u32 source_n;
@@ -320,12 +329,6 @@ BenchResult HybridRunner::run(const BenchOptions& options) {
 BenchResult HybridRunner::run_matmul(const BenchOptions& options) {
   const usize n = options.n;
   const usize size = n * n;
-  const double cpu_ratio = cpu_ratio_for(BenchAlgo::kBenchAlgoMatmul);
-  usize cpu_rows = static_cast<usize>(static_cast<double>(n) * cpu_ratio);
-  if (n > 1) {
-    cpu_rows = std::min(std::max(cpu_rows, usize{1}), n - 1);
-  }
-  const usize gpu_rows = n - cpu_rows;
 
   auto a = bench::make_random(size, options.seed);
   auto b = bench::make_random(size, options.seed + 1u);
@@ -354,41 +357,75 @@ BenchResult HybridRunner::run_matmul(const BenchOptions& options) {
     return result;
   }
 
-  vk_write_buffer(ctx_, ba, a.data(), ba.size);
-  vk_write_buffer(ctx_, bb, b.data(), bb.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx_, ba, a.data(), ba.size);
+    vk_write_buffer(ctx_, bb, b.data(), bb.size);
+  });
 
   VkDescriptorSet set = vk_allocate_descriptor_set(ctx_, resources_);
   const auto infos = make_bindings(dummy_, {ba, bb, bc});
   vk_update_descriptor_set(ctx_, set, infos);
 
   const u32 group_x = static_cast<u32>((n + 15) / 16);
-  const u32 group_y = gpu_rows > 0 ? static_cast<u32>((gpu_rows + 15) / 16) : 0u;
   const u32 push_n = static_cast<u32>(n);
 
+  // Adaptive ratio: start with heuristic default, refine each repeat.
+  // Override env var bypasses adaptation.
+  const bool has_override = parse_cpu_ratio_override() >= 0.0;
+  double ratio = cpu_ratio_for(BenchAlgo::kBenchAlgoMatmul);
+
   using clock = std::chrono::steady_clock;
-  const auto start = clock::now();
+  f64 total_ms = 0.0;
+  usize last_gpu_rows = 0;
+
   for (u32 repeat = 0; repeat < options.repeats; ++repeat) {
-    std::thread cpu_thread;
-    if (cpu_rows > 0) {
-      cpu_thread = std::thread([&] {
-        parallel_for_range(gpu_rows, n, [&](const usize begin, const usize end) {
-          matmul_rows(a.data(), b.data(), c.data(), n, begin, end);
-        });
+    usize cpu_rows = static_cast<usize>(std::round(static_cast<double>(n) * ratio));
+    if (n > 1) {
+      cpu_rows = std::min(std::max(cpu_rows, usize{1}), n - 1);
+    }
+    const usize gpu_rows = n - cpu_rows;
+    last_gpu_rows = gpu_rows;
+    const u32 group_y = static_cast<u32>((gpu_rows + 15) / 16);
+
+    std::atomic<f64> cpu_time_ms{0.0};
+    const auto rep_start = clock::now();
+
+    std::thread cpu_thread([&, gpu_rows_cap = gpu_rows] {
+      const auto t0 = clock::now();
+      parallel_for_range(gpu_rows_cap, n, [&](const usize begin, const usize end) {
+        matmul_rows(a.data(), b.data(), c.data(), n, begin, end);
       });
-    }
-    if (gpu_rows > 0) {
-      dispatch_matmul(ctx_, resources_, matmul_pipeline_, set, push_n, group_x, group_y);
-    }
-    if (cpu_thread.joinable()) {
-      cpu_thread.join();
+      cpu_time_ms.store(
+          std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - t0).count());
+    });
+
+    const auto gpu_t0 = clock::now();
+    dispatch_matmul(ctx_, resources_, matmul_pipeline_, set, push_n, group_x, group_y);
+    const f64 gpu_time_ms =
+        std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - gpu_t0).count();
+
+    cpu_thread.join();
+    total_ms +=
+        std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - rep_start).count();
+
+    // Adaptive update: equalize CPU and GPU throughput rates.
+    // Skip update when timings are below 1 ms — clock noise dominates at sub-ms
+    // granularity and causes the ratio to oscillate rather than converge.
+    if (!has_override) {
+      const f64 t_cpu = cpu_time_ms.load();
+      constexpr f64 kMinAdaptiveMs = 1.0;
+      if (t_cpu > kMinAdaptiveMs && gpu_time_ms > kMinAdaptiveMs) {
+        const double r_cpu = static_cast<double>(cpu_rows) / t_cpu;
+        const double r_gpu = static_cast<double>(gpu_rows) / gpu_time_ms;
+        const double target = r_cpu / (r_cpu + r_gpu);
+        ratio = clamp_ratio(0.9 * ratio + 0.1 * target);
+      }
     }
   }
-  const auto end = clock::now();
-  const f64 total_ms = std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(end - start).count();
 
-  vk_read_buffer(ctx_, bc, gpu_c.data(), bc.size);
-  if (gpu_rows > 0) {
-    std::copy_n(gpu_c.data(), gpu_rows * n, c.data());
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx_, bc, gpu_c.data(), bc.size); });
+  if (last_gpu_rows > 0) {
+    std::copy_n(gpu_c.data(), last_gpu_rows * n, c.data());
   }
 
   VK_CHECK(vkFreeDescriptorSets(ctx_.device, resources_.descriptor_pool, 1, &set));
@@ -398,9 +435,9 @@ BenchResult HybridRunner::run_matmul(const BenchOptions& options) {
 
   BenchResult result{};
   result.status = 0;
-  result.total_time_ms = total_ms;
+  result.total_time_ms = mem_h2d_ms + total_ms + mem_d2h_ms;
   result.calc_time_ms = options.repeats > 0 ? total_ms / static_cast<f64>(options.repeats) : 0.0;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(2.0 * static_cast<f64>(n) * static_cast<f64>(n) * static_cast<f64>(n));
   result.bytes_moved = static_cast<u64>(3 * size * sizeof(f32));
   result.gflops = result.calc_time_ms > 0.0 ? static_cast<f64>(result.flops) / (result.calc_time_ms * 1.0e6) : 0.0;
@@ -412,12 +449,6 @@ BenchResult HybridRunner::run_matmul(const BenchOptions& options) {
 
 BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
   const usize n = options.n;
-  const double cpu_ratio = cpu_ratio_for(BenchAlgo::kBenchAlgoNbody);
-  usize cpu_n = static_cast<usize>(static_cast<double>(n) * cpu_ratio);
-  if (n > 1) {
-    cpu_n = std::min(std::max(cpu_n, usize{1}), n - 1);
-  }
-  const usize gpu_n = n - cpu_n;
 
   auto px = bench::make_random(n, options.seed, -100.0f, 100.0f);
   auto py = bench::make_random(n, options.seed + 1u, -100.0f, 100.0f);
@@ -437,19 +468,18 @@ BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
                                 n * sizeof(f32),
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  auto bfx = gpu_n > 0 ? vk_create_buffer(ctx_,
-                                          gpu_n * sizeof(f32),
-                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-                       : VkBufferHandle{};
-  auto bfy = gpu_n > 0 ? vk_create_buffer(ctx_,
-                                          gpu_n * sizeof(f32),
-                                          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)
-                       : VkBufferHandle{};
+  // Pre-allocate full n-size output buffers to allow adaptive target_n changes.
+  auto bfx = vk_create_buffer(ctx_,
+                              n * sizeof(f32),
+                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+  auto bfy = vk_create_buffer(ctx_,
+                              n * sizeof(f32),
+                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
   if (bpx.buffer == VK_NULL_HANDLE || bpy.buffer == VK_NULL_HANDLE || bmass.buffer == VK_NULL_HANDLE ||
-      (gpu_n > 0 && (bfx.buffer == VK_NULL_HANDLE || bfy.buffer == VK_NULL_HANDLE))) {
+      bfx.buffer == VK_NULL_HANDLE || bfy.buffer == VK_NULL_HANDLE) {
     vk_destroy_buffer(ctx_, bpx);
     vk_destroy_buffer(ctx_, bpy);
     vk_destroy_buffer(ctx_, bmass);
@@ -460,46 +490,77 @@ BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
     return result;
   }
 
-  vk_write_buffer(ctx_, bpx, px.data(), bpx.size);
-  vk_write_buffer(ctx_, bpy, py.data(), bpy.size);
-  vk_write_buffer(ctx_, bmass, mass.data(), bmass.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx_, bpx, px.data(), bpx.size);
+    vk_write_buffer(ctx_, bpy, py.data(), bpy.size);
+    vk_write_buffer(ctx_, bmass, mass.data(), bmass.size);
+  });
 
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (gpu_n > 0) {
-    set = vk_allocate_descriptor_set(ctx_, resources_);
-    const auto infos = make_bindings(dummy_, {bpx, bpy, bmass, bfx, bfy});
-    vk_update_descriptor_set(ctx_, set, infos);
-  }
+  VkDescriptorSet set = vk_allocate_descriptor_set(ctx_, resources_);
+  const auto infos = make_bindings(dummy_, {bpx, bpy, bmass, bfx, bfy});
+  vk_update_descriptor_set(ctx_, set, infos);
 
-  const NBodyPush push{static_cast<u32>(n), static_cast<u32>(gpu_n), kSoftening2};
-  const u32 groups = gpu_n > 0 ? static_cast<u32>((gpu_n + 255) / 256) : 0u;
+  // Adaptive ratio: start with heuristic default, refine each repeat.
+  const bool has_override = parse_cpu_ratio_override() >= 0.0;
+  double ratio = cpu_ratio_for(BenchAlgo::kBenchAlgoNbody);
 
   using clock = std::chrono::steady_clock;
-  const auto start = clock::now();
-  for (u32 repeat = 0; repeat < options.repeats; ++repeat) {
-    std::thread cpu_thread;
-    if (cpu_n > 0) {
-      cpu_thread = std::thread([&] {
-        parallel_for_range(gpu_n, n, [&](const usize begin, const usize end) {
-          nbody_range(px.data(), py.data(), mass.data(), fx.data(), fy.data(), n, begin, end);
-        });
-      });
-    }
-    if (gpu_n > 0) {
-      dispatch_nbody(ctx_, resources_, nbody_pipeline_, set, push, groups);
-    }
-    if (cpu_thread.joinable()) {
-      cpu_thread.join();
-    }
-  }
-  const auto end = clock::now();
-  const f64 total_ms = std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(end - start).count();
+  f64 total_ms = 0.0;
+  usize last_gpu_n = 0;
 
-  if (gpu_n > 0) {
-    vk_read_buffer(ctx_, bfx, fx.data(), bfx.size);
-    vk_read_buffer(ctx_, bfy, fy.data(), bfy.size);
-    VK_CHECK(vkFreeDescriptorSets(ctx_.device, resources_.descriptor_pool, 1, &set));
+  for (u32 repeat = 0; repeat < options.repeats; ++repeat) {
+    usize cpu_n = static_cast<usize>(std::round(static_cast<double>(n) * ratio));
+    if (n > 1) {
+      cpu_n = std::min(std::max(cpu_n, usize{1}), n - 1);
+    }
+    const usize gpu_n = n - cpu_n;
+    last_gpu_n = gpu_n;
+
+    const NBodyPush push{static_cast<u32>(n), static_cast<u32>(gpu_n), kSoftening2};
+    const u32 groups = static_cast<u32>((gpu_n + 255) / 256);
+
+    std::atomic<f64> cpu_time_ms{0.0};
+    const auto rep_start = clock::now();
+
+    std::thread cpu_thread([&, gpu_n_cap = gpu_n] {
+      const auto t0 = clock::now();
+      parallel_for_range(gpu_n_cap, n, [&](const usize begin, const usize end) {
+        nbody_range(px.data(), py.data(), mass.data(), fx.data(), fy.data(), n, begin, end);
+      });
+      cpu_time_ms.store(
+          std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - t0).count());
+    });
+
+    const auto gpu_t0 = clock::now();
+    dispatch_nbody(ctx_, resources_, nbody_pipeline_, set, push, groups);
+    const f64 gpu_time_ms =
+        std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - gpu_t0).count();
+
+    cpu_thread.join();
+    total_ms +=
+        std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - rep_start).count();
+
+    // Adaptive update: equalize CPU and GPU throughput rates.
+    // Skip update when timings are below 1 ms — clock noise dominates at sub-ms
+    // granularity and causes the ratio to oscillate rather than converge.
+    if (!has_override) {
+      const f64 t_cpu = cpu_time_ms.load();
+      constexpr f64 kMinAdaptiveMs = 1.0;
+      if (t_cpu > kMinAdaptiveMs && gpu_time_ms > kMinAdaptiveMs) {
+        const double r_cpu = static_cast<double>(cpu_n) / t_cpu;
+        const double r_gpu = static_cast<double>(gpu_n) / gpu_time_ms;
+        const double target = r_cpu / (r_cpu + r_gpu);
+        ratio = clamp_ratio(0.9 * ratio + 0.1 * target);
+      }
+    }
   }
+
+  // Read back the GPU portion computed in the last iteration.
+  const f64 mem_d2h_ms = time_ms_fn([&] {
+    vk_read_buffer(ctx_, bfx, fx.data(), last_gpu_n * sizeof(f32));
+    vk_read_buffer(ctx_, bfy, fy.data(), last_gpu_n * sizeof(f32));
+  });
+  VK_CHECK(vkFreeDescriptorSets(ctx_.device, resources_.descriptor_pool, 1, &set));
 
   vk_destroy_buffer(ctx_, bpx);
   vk_destroy_buffer(ctx_, bpy);
@@ -509,9 +570,9 @@ BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
 
   BenchResult result{};
   result.status = 0;
-  result.total_time_ms = total_ms;
+  result.total_time_ms = mem_h2d_ms + total_ms + mem_d2h_ms;
   result.calc_time_ms = options.repeats > 0 ? total_ms / static_cast<f64>(options.repeats) : 0.0;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(20.0 * static_cast<f64>(n) * static_cast<f64>(n - 1));
   result.bytes_moved = static_cast<u64>(5 * n * sizeof(f32));
   result.gflops = result.calc_time_ms > 0.0 ? static_cast<f64>(result.flops) / (result.calc_time_ms * 1.0e6) : 0.0;

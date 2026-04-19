@@ -124,6 +124,15 @@ static f64 checksum_u32(const std::vector<u32>& data) {
   return sum;
 }
 
+template <typename Fn>
+static f64 time_ms_fn(Fn&& fn) {
+  using clock = std::chrono::steady_clock;
+  const auto t0 = clock::now();
+  fn();
+  const auto t1 = clock::now();
+  return std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(t1 - t0).count();
+}
+
 static Timing measure_dispatch(VkContext& ctx,
                                VkPipeline pipeline,
                                VkPipelineLayout layout,
@@ -225,8 +234,10 @@ static void run_vecadd(VkContext& ctx,
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  vk_write_buffer(ctx, bx, x.data(), bx.size);
-  vk_write_buffer(ctx, by, y.data(), by.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx, bx, x.data(), bx.size);
+    vk_write_buffer(ctx, by, y.data(), by.size);
+  });
 
   auto infos = make_bindings(dummy, {bx, by, bo});
   vk_update_descriptor_set(ctx, set, infos);
@@ -248,12 +259,12 @@ static void run_vecadd(VkContext& ctx,
                                  1,
                                  static_cast<i32>(opt.repeats));
 
-  vk_read_buffer(ctx, bo, out.data(), bo.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bo, out.data(), bo.size); });
   const f64 sum = checksum(out);
   const f64 flops = 2.0 * static_cast<f64>(n);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(3 * n * sizeof(f32));
@@ -280,7 +291,7 @@ static void run_reduce(VkContext& ctx,
                              n * sizeof(f32),
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  vk_write_buffer(ctx, bx, data.data(), bx.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] { vk_write_buffer(ctx, bx, data.data(), bx.size); });
 
   const u32 groups = static_cast<u32>((n + 255) / 256);
   auto bout = vk_create_buffer(ctx,
@@ -306,16 +317,16 @@ static void run_reduce(VkContext& ctx,
                                  static_cast<i32>(opt.repeats));
 
   std::vector<f32> partial(groups);
-  vk_read_buffer(ctx, bout, partial.data(), bout.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bout, partial.data(), bout.size); });
   f64 sum = 0.0;
   for (f32 v : partial) {
     sum += v;
   }
 
   const f64 flops = static_cast<f64>(n);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(n * sizeof(f32));
@@ -358,7 +369,7 @@ static void run_prefix(VkContext& ctx,
                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  vk_write_buffer(ctx, bin, data.data(), bin.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] { vk_write_buffer(ctx, bin, data.data(), bin.size); });
   auto infos_block = make_bindings(dummy, {bin, bout, bsum});
   auto infos_add = make_bindings(dummy, {bout, boff});
 
@@ -426,12 +437,12 @@ static void run_prefix(VkContext& ctx,
   timing.total_ms = total_ms;
   timing.avg_ms = opt.repeats > 0 ? total_ms / static_cast<f64>(opt.repeats) : 0.0;
 
-  vk_read_buffer(ctx, bout, out.data(), bout.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bout, out.data(), bout.size); });
   const f64 sum = checksum(out);
   const f64 flops = static_cast<f64>(n);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(2 * n * sizeof(f32));
@@ -465,7 +476,7 @@ static void run_hist(VkContext& ctx,
                                 bins * sizeof(u32),
                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  vk_write_buffer(ctx, bdata, data.data(), bdata.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] { vk_write_buffer(ctx, bdata, data.data(), bdata.size); });
   auto infos = make_bindings(dummy, {bdata, bbins});
   vk_update_descriptor_set(ctx, set, infos);
 
@@ -476,21 +487,24 @@ static void run_hist(VkContext& ctx,
 
   const u32 groups = static_cast<u32>((n + 255) / 256);
   Timing timing{};
+  f64 reset_bins_ms = 0.0;
   for (i32 i = 0; i < opt.repeats; ++i) {
-    std::fill(hist.begin(), hist.end(), 0u);
-    vk_write_buffer(ctx, bbins, hist.data(), bbins.size);
+    reset_bins_ms += time_ms_fn([&] {
+      std::fill(hist.begin(), hist.end(), 0u);
+      vk_write_buffer(ctx, bbins, hist.data(), bbins.size);
+    });
     auto t = measure_dispatch(ctx, pipeline, res.pipeline_layout, set, &push, sizeof(push), groups, 1, 1, 1);
     timing.total_ms += t.total_ms;
   }
   const f64 total_ms = timing.total_ms;
   timing.avg_ms = opt.repeats > 0 ? total_ms / static_cast<f64>(opt.repeats) : 0.0;
 
-  vk_read_buffer(ctx, bbins, hist.data(), bbins.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bbins, hist.data(), bbins.size); });
   const f64 sum = checksum_u32(hist);
   const f64 flops = static_cast<f64>(n);
-  result.total_time_ms = total_ms;
+  result.total_time_ms = mem_h2d_ms + reset_bins_ms + total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + reset_bins_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(n * sizeof(u32) + bins * sizeof(u32));
@@ -529,8 +543,10 @@ static void run_conv2d(VkContext& ctx,
                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  vk_write_buffer(ctx, bin, input.data(), bin.size);
-  vk_write_buffer(ctx, bkernel, kernel.data(), bkernel.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx, bin, input.data(), bin.size);
+    vk_write_buffer(ctx, bkernel, kernel.data(), bkernel.size);
+  });
   auto infos = make_bindings(dummy, {bin, bkernel, bout});
   vk_update_descriptor_set(ctx, set, infos);
 
@@ -553,12 +569,12 @@ static void run_conv2d(VkContext& ctx,
                                  1,
                                  static_cast<i32>(opt.repeats));
 
-  vk_read_buffer(ctx, bout, output.data(), bout.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bout, output.data(), bout.size); });
   const f64 sum = checksum(output);
   const f64 flops = 2.0 * static_cast<f64>(ksize) * static_cast<f64>(ksize) * static_cast<f64>(size);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>((2 * size + ksize * ksize) * sizeof(f32));
@@ -605,10 +621,12 @@ static void run_spmv(VkContext& ctx,
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  vk_write_buffer(ctx, brow, mat.row_ptr.data(), brow.size);
-  vk_write_buffer(ctx, bcol, mat.col_idx.data(), bcol.size);
-  vk_write_buffer(ctx, bval, mat.values.data(), bval.size);
-  vk_write_buffer(ctx, bx, x.data(), bx.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx, brow, mat.row_ptr.data(), brow.size);
+    vk_write_buffer(ctx, bcol, mat.col_idx.data(), bcol.size);
+    vk_write_buffer(ctx, bval, mat.values.data(), bval.size);
+    vk_write_buffer(ctx, bx, x.data(), bx.size);
+  });
   auto infos = make_bindings(dummy, {brow, bcol, bval, bx, by});
   vk_update_descriptor_set(ctx, set, infos);
 
@@ -628,12 +646,12 @@ static void run_spmv(VkContext& ctx,
                                  1,
                                  static_cast<i32>(opt.repeats));
 
-  vk_read_buffer(ctx, by, y.data(), by.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, by, y.data(), by.size); });
   const f64 sum = checksum(y);
   const f64 flops = 2.0 * static_cast<f64>(mat.values.size());
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved =
@@ -676,8 +694,10 @@ static void run_matmul(VkContext& ctx,
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  vk_write_buffer(ctx, ba, a.data(), ba.size);
-  vk_write_buffer(ctx, bb, b.data(), bb.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx, ba, a.data(), ba.size);
+    vk_write_buffer(ctx, bb, b.data(), bb.size);
+  });
   auto infos = make_bindings(dummy, {ba, bb, bc});
   vk_update_descriptor_set(ctx, set, infos);
 
@@ -698,12 +718,12 @@ static void run_matmul(VkContext& ctx,
                                  1,
                                  static_cast<i32>(opt.repeats));
 
-  vk_read_buffer(ctx, bc, c.data(), bc.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bc, c.data(), bc.size); });
   const f64 sum = checksum(c);
   const f64 flops = 2.0 * static_cast<f64>(n) * static_cast<f64>(n) * static_cast<f64>(n);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
-  result.mem_time_ms = 0.0;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(3 * size * sizeof(f32));
@@ -736,7 +756,7 @@ static void run_blackscholes(VkContext& ctx,
                              n * sizeof(f32),
                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-  vk_write_buffer(ctx, bs, s.data(), bs.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] { vk_write_buffer(ctx, bs, s.data(), bs.size); });
   auto infos = make_bindings(dummy, {bs, bo});
   vk_update_descriptor_set(ctx, set, infos);
 
@@ -760,11 +780,12 @@ static void run_blackscholes(VkContext& ctx,
                                  1,
                                  static_cast<i32>(opt.repeats));
 
-  vk_read_buffer(ctx, bo, out.data(), bo.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, bo, out.data(), bo.size); });
   const f64 sum = checksum(out);
   const f64 flops = 50.0 * static_cast<f64>(n);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(2 * n * sizeof(f32));
@@ -806,9 +827,10 @@ static void run_bsort(VkContext& ctx,
 
   using clock = std::chrono::steady_clock;
   f64 total_ms = 0.0;
+  f64 total_h2d_ms = 0.0;
 
   for (i32 rep = 0; rep < opt.repeats; ++rep) {
-    vk_write_buffer(ctx, buf, orig.data(), buf.size);
+    total_h2d_ms += time_ms_fn([&] { vk_write_buffer(ctx, buf, orig.data(), buf.size); });
     auto infos = make_bindings(dummy, {buf});
     vk_update_descriptor_set(ctx, set, infos);
 
@@ -856,10 +878,11 @@ static void run_bsort(VkContext& ctx,
     total_ms += std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(t1 - t0).count();
   }
 
-  vk_read_buffer(ctx, buf, data.data(), buf.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx, buf, data.data(), buf.size); });
   const f64 avg_ms = opt.repeats > 0 ? total_ms / static_cast<f64>(opt.repeats) : 0.0;
-  result.total_time_ms = total_ms;
+  result.total_time_ms = total_h2d_ms + total_ms + mem_d2h_ms;
   result.calc_time_ms = avg_ms;
+  result.mem_time_ms = total_h2d_ms + mem_d2h_ms;
   result.flops = comparisons;
   result.gflops = static_cast<f64>(comparisons) / (avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(2 * n2 * sizeof(f32));
@@ -905,9 +928,11 @@ static void run_nbody(VkContext& ctx,
                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
-  vk_write_buffer(ctx, bpx, px.data(), bpx.size);
-  vk_write_buffer(ctx, bpy, py.data(), bpy.size);
-  vk_write_buffer(ctx, bm, mass.data(), bm.size);
+  const f64 mem_h2d_ms = time_ms_fn([&] {
+    vk_write_buffer(ctx, bpx, px.data(), bpx.size);
+    vk_write_buffer(ctx, bpy, py.data(), bpy.size);
+    vk_write_buffer(ctx, bm, mass.data(), bm.size);
+  });
   auto infos = make_bindings(dummy, {bpx, bpy, bm, bfx, bfy});
   vk_update_descriptor_set(ctx, set, infos);
 
@@ -929,11 +954,14 @@ static void run_nbody(VkContext& ctx,
                                  1,
                                  static_cast<i32>(opt.repeats));
 
-  vk_read_buffer(ctx, bfx, fx.data(), bfx.size);
-  vk_read_buffer(ctx, bfy, fy.data(), bfy.size);
+  const f64 mem_d2h_ms = time_ms_fn([&] {
+    vk_read_buffer(ctx, bfx, fx.data(), bfx.size);
+    vk_read_buffer(ctx, bfy, fy.data(), bfy.size);
+  });
   const f64 flops = 20.0 * static_cast<f64>(n) * static_cast<f64>(n - 1);
-  result.total_time_ms = timing.total_ms;
+  result.total_time_ms = mem_h2d_ms + timing.total_ms + mem_d2h_ms;
   result.calc_time_ms = timing.avg_ms;
+  result.mem_time_ms = mem_h2d_ms + mem_d2h_ms;
   result.flops = static_cast<u64>(flops);
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(5 * n * sizeof(f32));

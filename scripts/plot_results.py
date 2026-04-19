@@ -54,7 +54,7 @@ BACKEND_ORDER = ["cpu_ref", "cpu_auto", "cpu_avx512", "cpu_mt", "vulkan", "hybri
 def load_csv(path):
     rows = []
     with open(path, newline='') as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(line for line in f if not line.startswith('#'))
         for row in reader:
             try:
                 rows.append({

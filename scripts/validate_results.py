@@ -106,7 +106,8 @@ def approx_equal(lhs: float, rhs: float, rel_tol: float, abs_tol: float) -> bool
 
 def load_rows(path: str) -> list[dict[str, str]]:
     with open(path, newline="", encoding="ascii") as handle:
-        return list(csv.DictReader(handle))
+        reader = csv.DictReader(line for line in handle if not line.startswith("#"))
+        return list(reader)
 
 
 def checksum_status(rows: list[dict[str, str]]) -> tuple[list[str], list[str]]:
@@ -181,7 +182,11 @@ def validate(path: str) -> int:
                 f"bytes_moved mismatch for {backend}/{algo}: csv={bytes_moved}, expected={expected_bytes}"
             )
 
-        if repeats > 0:
+        mem_ms = float(row["mem_ms"])
+        if repeats > 0 and mem_ms == 0.0:
+            # CPU backends: total_ms is the sum of all repeats, so calc_ms == total_ms / repeats.
+            # For GPU backends mem_ms > 0 and total_ms includes one-time transfer overhead,
+            # so this invariant does not hold there.
             expected_calc = total_ms / repeats
             if not approx_equal(calc_ms, expected_calc, 1e-5, 1e-5):
                 errors.append(

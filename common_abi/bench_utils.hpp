@@ -155,12 +155,14 @@ inline bool parse_arg_value(i32 argc, char** argv, i32& i, const std::string& na
 inline void print_help() {
   std::printf("Usage: bench_cpu_ref --algo <name> [--n N] [--repeats R] [--seed S]\n");
   std::printf("                      [--bins B] [--nnz NNZ] [--ksize K]\n");
-  std::printf("Algorithms: vecadd, reduce, prefix, hist, conv2d, spmv, matmul\n");
-  std::printf("Defaults: vecadd n=1048576 repeats=5 seed=1234\n");
-  std::printf("          reduce/prefix/hist n=1048576\n");
+  std::printf("Algorithms: vecadd, reduce, prefix, hist, conv2d, spmv, matmul,\n");
+  std::printf("            blackscholes, bsort, nbody\n");
+  std::printf("Defaults: vecadd/reduce/prefix/hist/blackscholes/bsort n=1048576\n");
   std::printf("          conv2d n=1024 ksize=3\n");
   std::printf("          spmv n=262144 nnz=16\n");
   std::printf("          matmul n=512\n");
+  std::printf("          nbody n=4096\n");
+  std::printf("          repeats=20 seed=1234\n");
 }
 
 inline f64 checksum(const f32* data, usize n) {

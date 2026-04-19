@@ -11,6 +11,7 @@ target_compile_features(bench_orchestrator PRIVATE cxx_std_17)
 target_include_directories(bench_orchestrator PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../common_abi
+  ${CMAKE_BINARY_DIR}
 )
 
 if (UNIX AND NOT APPLE)

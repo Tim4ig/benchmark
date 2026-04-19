@@ -1,5 +1,6 @@
 #include "../bench_settings.h"
 #include "../common_abi/bench_abi.h"
+#include "build_info.h"
 
 #include <atomic>
 #include <chrono>
@@ -285,11 +286,19 @@ int main(const int argc, char** argv) {
       std::fprintf(stderr, "Cannot open CSV file: %s\n", csv_path.c_str());
       return 1;
     }
+    std::fprintf(csv_file, "# git_hash=%s\n", BUILD_GIT_HASH);
+    std::fprintf(csv_file, "# build_ts=%s\n", BUILD_TIMESTAMP);
+    std::fprintf(csv_file, "# compiler=%s\n", BUILD_CXX_COMPILER);
     std::fprintf(csv_file,
                  "backend,algo,n,repeats,bins,nnz_per_row,ksize,"
                  "total_ms,calc_ms,mem_ms,gflops,gbytes,checksum,flops,bytes_moved,"
                  "watts_cpu,watts_gpu,status\n");
   }
+  std::fprintf(stderr,
+               "[build] git_hash=%s build_ts=%s compiler=%s\n",
+               BUILD_GIT_HASH,
+               BUILD_TIMESTAMP,
+               BUILD_CXX_COMPILER);
 
   for (const auto& path : libs) {
     Library lib;
