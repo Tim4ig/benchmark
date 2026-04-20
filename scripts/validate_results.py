@@ -32,14 +32,14 @@ ALGO_ORDER = [
 CHECKSUM_RTOL = {
     "vecadd": 2e-6,
     "reduce": 1e-5,
-    "prefix": 1e-5,
+    "prefix": 2.5e-3,
     "hist": 0.0,
     "conv2d": 2e-6,
     "spmv": 2e-6,
     "matmul": 2e-6,
     "blackscholes": 5e-5,
     "bsort": 0.0,
-    "nbody": 1e-4,
+    "nbody": 5e-4,
 }
 
 

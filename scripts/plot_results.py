@@ -267,7 +267,8 @@ def radar_chart(pivot_data, metric_label, out_path):
 # Power charts
 
 def power_heatmap(rows, out_dir):
-    """Two heatmaps side-by-side: CPU package watts and total (CPU+GPU) watts."""
+    """Two heatmaps side-by-side: CPU package watts and total (CPU+GPU) watts.
+    Falls back to GPU-only display when RAPL (watts_cpu) is unavailable."""
     algos    = [a for a in ALGO_ORDER if any(r['algo'] == a and r['status'] == 0 for r in rows)]
     backends = [b for b in BACKEND_ORDER if any(r['backend'] == b and r['status'] == 0 for r in rows)]
     if not algos or not backends:
@@ -279,27 +280,34 @@ def power_heatmap(rows, out_dir):
                     if r['status'] == 0 and r['backend'] in gpu_only and r['watts_gpu'] >= 0]
     gpu_idle = float(np.median(idle_samples)) if idle_samples else 0.0
 
-    # Build matrices
+    rapl_available = any(r['watts_cpu'] >= 0 for r in rows if r['status'] == 0)
+
+    # Build matrices — when RAPL unavailable, cpu_mat stays NaN, total_mat uses GPU only
     cpu_mat   = np.full((len(backends), len(algos)), np.nan)
     total_mat = np.full((len(backends), len(algos)), np.nan)
     for r in rows:
-        if r['status'] != 0 or r['watts_cpu'] < 0:
+        if r['status'] != 0:
             continue
         bi = backends.index(r['backend'])
         ai = algos.index(r['algo'])
-        cw = r['watts_cpu']
         gw = r['watts_gpu'] if r['watts_gpu'] >= 0 else gpu_idle
-        cpu_mat[bi, ai]   = cw
-        total_mat[bi, ai] = cw + gw
+        if rapl_available and r['watts_cpu'] >= 0:
+            cw = r['watts_cpu']
+            cpu_mat[bi, ai]   = cw
+            total_mat[bi, ai] = cw + gw
+        else:
+            total_mat[bi, ai] = gw
 
     algo_labels = [a.replace('blackscholes', 'bs') for a in algos]
     fig, (ax1, ax2) = plt.subplots(1, 2,
                                    figsize=(max(14, len(algos) * 1.3) * 2, max(4, len(backends) * 0.85)),
                                    gridspec_kw={'wspace': 0.35})
 
+    cpu_title = 'CPU Package Power (W)' if rapl_available else 'CPU Package Power (W)\n[RAPL unavailable — no data]'
+    total_label = 'Total System Power: CPU + GPU (W)' if rapl_available else 'GPU Power (W)\n[CPU RAPL unavailable]'
     for ax, mat, title, unit in [
-        (ax1, cpu_mat,   'CPU Package Power (W)', 'W'),
-        (ax2, total_mat, f'Total System Power: CPU + GPU (W)\n(GPU idle ≈ {gpu_idle:.0f} W for CPU-only backends)', 'W'),
+        (ax1, cpu_mat,   cpu_title, 'W'),
+        (ax2, total_mat, f'{total_label}\n(GPU idle ≈ {gpu_idle:.0f} W for CPU-only backends)', 'W'),
     ]:
         im = ax.imshow(mat, aspect='auto', cmap='YlOrRd',
                        vmin=np.nanmin(mat) * 0.95, vmax=np.nanmax(mat) * 1.02)
@@ -336,13 +344,18 @@ def power_chart(rows, out_path):
                     if r['status'] == 0 and r['backend'] in gpu_only and r['watts_gpu'] >= 0]
     gpu_idle = float(np.median(idle_samples)) if idle_samples else 0.0
 
-    # GFLOPS / (cpu_w + gpu_w)
+    rapl_available = any(r['watts_cpu'] >= 0 for r in rows if r['status'] == 0)
+
+    # GFLOPS / (cpu_w + gpu_w); when RAPL unavailable fall back to GPU watts only
     eff = collections.defaultdict(dict)
     for r in rows:
-        if r['status'] != 0 or r['watts_cpu'] < 0:
+        if r['status'] != 0:
             continue
         gw = r['watts_gpu'] if r['watts_gpu'] >= 0 else gpu_idle
-        tw = r['watts_cpu'] + gw
+        if rapl_available and r['watts_cpu'] >= 0:
+            tw = r['watts_cpu'] + gw
+        else:
+            tw = gw
         if tw > 0 and r['gflops'] > 0:
             eff[r['algo']][r['backend']] = r['gflops'] / tw
 
@@ -370,8 +383,9 @@ def power_chart(rows, out_path):
 
     ax.set_xticks(x)
     ax.set_xticklabels(algo_labels, fontsize=10)
-    ax.set_ylabel('GFLOP/s per Watt  (total CPU+GPU)', fontsize=11)
-    ax.set_title(f'Energy Efficiency: GFLOP/s per Total Watt  '
+    power_label = 'total CPU+GPU' if rapl_available else 'GPU only (CPU RAPL unavailable)'
+    ax.set_ylabel(f'GFLOP/s per Watt  ({power_label})', fontsize=11)
+    ax.set_title(f'Energy Efficiency: GFLOP/s per Watt  ({power_label})\n'
                  f'(GPU idle ≈ {gpu_idle:.0f} W counted for CPU-only backends)',
                  fontsize=12, fontweight='bold')
     ax.legend(fontsize=9)

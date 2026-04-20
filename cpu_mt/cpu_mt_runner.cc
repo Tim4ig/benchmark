@@ -415,7 +415,7 @@ static BenchResult run_bsort(const BenchOptions& opts) {
     }
   };
   auto r = run_bench(opts, fn, {comparisons, static_cast<u64>(2 * n2 * sizeof(f32))});
-  r.checksum = bench::checksum(data.data(), n2);
+  r.checksum = bench::checksum_bits(data.data(), n2);
   return r;
 }
 
@@ -486,7 +486,7 @@ static BenchResult run_nbody(const BenchOptions& opts) {
     });
   };
   auto r = run_bench(opts, fn, {static_cast<u64>(flops), static_cast<u64>(5 * n * sizeof(f32))});
-  r.checksum = bench::checksum(fx.data(), n) + bench::checksum(fy.data(), n);
+  r.checksum = bench::checksum_xy(fx.data(), fy.data(), n);
   return r;
 }
 

@@ -578,7 +578,7 @@ BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
   result.gflops = result.calc_time_ms > 0.0 ? static_cast<f64>(result.flops) / (result.calc_time_ms * 1.0e6) : 0.0;
   result.gbytes =
       result.calc_time_ms > 0.0 ? static_cast<f64>(result.bytes_moved) / (result.calc_time_ms * 1.0e6) : 0.0;
-  result.checksum = bench::checksum(fx.data(), n) + bench::checksum(fy.data(), n);
+  result.checksum = bench::checksum_xy(fx.data(), fy.data(), n);
   return result;
 }
 } // namespace bench::hybrid

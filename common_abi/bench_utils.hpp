@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <functional>
 #include <random>
 #include <string>
@@ -168,7 +170,8 @@ inline void print_help() {
 inline f64 checksum(const f32* data, usize n) {
   auto sum = 0.0;
   for (usize i = 0; i < n; ++i) {
-    sum += static_cast<f64>(data[i]);
+    const f64 weight = 1.0 + static_cast<f64>((i % 1024) + 1) * (1.0 / 2048.0);
+    sum += static_cast<f64>(data[i]) * weight;
   }
   return sum;
 }
@@ -176,7 +179,31 @@ inline f64 checksum(const f32* data, usize n) {
 inline f64 checksum_u32(const u32* data, usize n) {
   auto sum = 0.0;
   for (usize i = 0; i < n; ++i) {
-    sum += static_cast<f64>(data[i]);
+    sum += static_cast<f64>(data[i]) * static_cast<f64>(i + 1);
+  }
+  return sum;
+}
+
+inline f64 checksum_bits(const f32* data, usize n) {
+  u64 hash = 1469598103934665603ULL;
+  for (usize i = 0; i < n; ++i) {
+    u32 bits = 0;
+    std::memcpy(&bits, data + i, sizeof(bits));
+    hash ^= static_cast<u64>(bits);
+    hash *= 1099511628211ULL;
+  }
+  return static_cast<f64>(hash & ((1ULL << 53) - 1ULL));
+}
+
+inline f64 checksum_xy(const f32* x, const f32* y, usize n) {
+  auto sum = 0.0;
+  for (usize i = 0; i < n; ++i) {
+    const f64 wx = 1.0 + static_cast<f64>((i % 1024) + 1) * (1.0 / 2048.0);
+    const f64 wy = 1.5 + static_cast<f64>((i % 1024) + 1) * (1.0 / 3072.0);
+    const f64 fx = static_cast<f64>(x[i]);
+    const f64 fy = static_cast<f64>(y[i]);
+    sum += std::abs(fx) * wx + std::abs(fy) * wy;
+    sum += fx * 0.03125 + fy * 0.015625;
   }
   return sum;
 }

@@ -29,7 +29,7 @@ BenchResult BitonicSortAlgorithm::run(const BenchOptions& options) {
   };
 
   BenchResult result = run_benchmark(options, run, spec);
-  result.checksum = bench::checksum(data.data(), n2);
+  result.checksum = bench::checksum_bits(data.data(), n2);
   return result;
 }
 } // namespace bench::cpu_avx512

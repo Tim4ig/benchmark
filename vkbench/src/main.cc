@@ -110,16 +110,42 @@ static std::vector<f32> make_kernel(usize ksize, u32 seed) {
 
 static f64 checksum(const std::vector<f32>& data) {
   f64 sum = 0.0;
-  for (f32 v : data) {
-    sum += static_cast<f64>(v);
+  for (usize i = 0; i < data.size(); ++i) {
+    const f64 weight = 1.0 + static_cast<f64>((i % 1024) + 1) * (1.0 / 2048.0);
+    sum += static_cast<f64>(data[i]) * weight;
   }
   return sum;
 }
 
 static f64 checksum_u32(const std::vector<u32>& data) {
   f64 sum = 0.0;
-  for (u32 v : data) {
-    sum += static_cast<f64>(v);
+  for (usize i = 0; i < data.size(); ++i) {
+    sum += static_cast<f64>(data[i]) * static_cast<f64>(i + 1);
+  }
+  return sum;
+}
+
+static f64 checksum_bits(const std::vector<f32>& data) {
+  u64 hash = 1469598103934665603ULL;
+  for (f32 value : data) {
+    u32 bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    hash ^= static_cast<u64>(bits);
+    hash *= 1099511628211ULL;
+  }
+  return static_cast<f64>(hash & ((1ULL << 53) - 1ULL));
+}
+
+static f64 checksum_xy(const std::vector<f32>& x, const std::vector<f32>& y) {
+  f64 sum = 0.0;
+  const usize n = std::min(x.size(), y.size());
+  for (usize i = 0; i < n; ++i) {
+    const f64 wx = 1.0 + static_cast<f64>((i % 1024) + 1) * (1.0 / 2048.0);
+    const f64 wy = 1.5 + static_cast<f64>((i % 1024) + 1) * (1.0 / 3072.0);
+    const f64 fx = static_cast<f64>(x[i]);
+    const f64 fy = static_cast<f64>(y[i]);
+    sum += std::abs(fx) * wx + std::abs(fy) * wy;
+    sum += fx * 0.03125 + fy * 0.015625;
   }
   return sum;
 }
@@ -835,8 +861,8 @@ static void run_bsort(VkContext& ctx,
     vk_update_descriptor_set(ctx, set, infos);
 
     const auto t0 = clock::now();
-    for (u32 stage = 1; stage <= static_cast<u32>(log2n); ++stage) {
-      for (u32 step = stage; step >= 1; --step) {
+    for (u32 stage = 2; stage <= static_cast<u32>(n2); stage <<= 1) {
+      for (u32 step = stage >> 1; step > 0; step >>= 1) {
         struct Push {
           u32 n;
           u32 step;
@@ -887,7 +913,7 @@ static void run_bsort(VkContext& ctx,
   result.gflops = static_cast<f64>(comparisons) / (avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(2 * n2 * sizeof(f32));
   result.gbytes = static_cast<f64>(result.bytes_moved) / (avg_ms * 1.0e6);
-  result.checksum = checksum(data);
+  result.checksum = checksum_bits(data);
   result.status = 0;
 
   vk_destroy_buffer(ctx, buf);
@@ -966,7 +992,7 @@ static void run_nbody(VkContext& ctx,
   result.gflops = flops / (timing.avg_ms * 1.0e6);
   result.bytes_moved = static_cast<u64>(5 * n * sizeof(f32));
   result.gbytes = static_cast<f64>(result.bytes_moved) / (timing.avg_ms * 1.0e6);
-  result.checksum = checksum(fx) + checksum(fy);
+  result.checksum = checksum_xy(fx, fy);
   result.status = 0;
 
   vk_destroy_buffer(ctx, bpx);

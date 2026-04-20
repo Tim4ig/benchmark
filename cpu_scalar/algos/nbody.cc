@@ -46,7 +46,7 @@ BenchResult NBodyAlgorithm::run(const BenchOptions& options) {
   };
 
   BenchResult result = run_benchmark(options, run, spec);
-  result.checksum = bench::checksum(fx.data(), n) + bench::checksum(fy.data(), n);
+  result.checksum = bench::checksum_xy(fx.data(), fy.data(), n);
   return result;
 }
 } // namespace bench::cpu_scalar
