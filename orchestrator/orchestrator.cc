@@ -2,8 +2,10 @@
 #include "../common_abi/bench_abi.h"
 #include "build_info.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -317,16 +319,61 @@ int main(const int argc, char** argv) {
       BenchOptions opt = bench::default_options();
       opt.algo         = algo;
       bench::apply_algorithm_defaults(opt);
-      if (repeats_override > 0)
-        opt.repeats = repeats_override;
 
       BenchResult result{};
       PowerSample pwr;
 
-      pwr = measure_power([&]() {
-        if (const auto rc = lib.api->run(&opt, &result); rc != 0)
-          result.status = rc;
-      });
+      if (repeats_override > 0) {
+        // Manual mode: short fixed warmup then measured run.
+        opt.repeats = std::max(3u, repeats_override / 4u);
+        BenchResult warmup_result{};
+        lib.api->run(&opt, &warmup_result);
+
+        opt.repeats = repeats_override;
+        pwr = measure_power([&]() {
+          if (const auto rc = lib.api->run(&opt, &result); rc != 0)
+            result.status = rc;
+        });
+      } else {
+        // Time-based mode: calibrate → warmup ~4.5s → re-estimate on warmed state
+        // → measure ~5.0s.
+        constexpr double kWarmupMs  = 4500.0;
+        constexpr double kMeasureMs = 5000.0;
+        constexpr u32    kMinReps   = 5;
+        constexpr u32    kMaxReps   = 200000;
+        constexpr u32    kCalibrationReps = 3;
+
+        // Step 1: calibration — a short cold estimate to size the warm-up run.
+        opt.repeats = kCalibrationReps;
+        BenchResult cal{};
+        lib.api->run(&opt, &cal);
+        const double iter_ms = (cal.status == 0 && cal.calc_time_ms > 0.0)
+                                 ? cal.calc_time_ms
+                                 : 50.0; // safe fallback
+
+        const u32 warmup_reps = std::clamp(static_cast<u32>(std::llround(kWarmupMs / iter_ms)), kMinReps, kMaxReps);
+
+        // Step 2: warm-up (heats caches, CPU boost, GPU steady state — not measured).
+        opt.repeats = warmup_reps;
+        BenchResult warmup{};
+        lib.api->run(&opt, &warmup);
+
+        const double warm_iter_ms = (warmup.status == 0 && warmup.calc_time_ms > 0.0)
+                                      ? warmup.calc_time_ms
+                                      : iter_ms;
+        const u32 measure_reps =
+            std::clamp(static_cast<u32>(std::llround(kMeasureMs / warm_iter_ms)), kMinReps, kMaxReps);
+
+        std::fprintf(stderr, "[timing] %s/%s  cold_iter=%.3fms  warmup=%u  warm_iter=%.3fms  measure=%u\n",
+                     backend, algo_name(algo), iter_ms, warmup_reps, warm_iter_ms, measure_reps);
+
+        // Step 3: measured run.
+        opt.repeats = measure_reps;
+        pwr = measure_power([&]() {
+          if (const auto rc = lib.api->run(&opt, &result); rc != 0)
+            result.status = rc;
+        });
+      }
 
       const char* aname = name != nullptr ? name : algo_name(algo);
       print_result(backend, aname, opt, result, pwr);

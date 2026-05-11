@@ -181,16 +181,15 @@ The orchestrator now writes both derived metrics and raw analytical counters:
 
 ## 9. Timing and Metric Model
 
-Across the CPU and Vulkan backends, the intended meaning is:
+Across the backends, the intended meaning is:
 
-- `total_ms`: total wall-clock time across all repeats
-- `calc_ms`: average time per repeat
+- `total_ms`: total wall-clock time reported by the backend; for CPU backends this is effectively `calc_ms * repeats`, while GPU and hybrid backends also include one-time transfer/setup overhead outside the repeated loop
+- `calc_ms`: average wall-clock time of one repeated dispatch/compute iteration
+- `mem_ms`: transfer/setup overhead kept outside that repeated loop; for most GPU paths it is dominated by H2D + D2H, with a few kernel-specific extras
 - `flops`: analytical operation count for the configured problem size
 - `bytes_moved`: analytical logical data movement for the configured problem size
 - `gflops = flops / (calc_ms * 1e6)`
 - `gbytes = bytes_moved / (calc_ms * 1e6)`
-
-`mem_time_ms` is currently always `0.0`. The repository does not yet separate transfer/setup time from compute time.
 
 ## 10. Validation Pipeline
 
@@ -209,7 +208,7 @@ The validator checks:
 - analytical `bytes_moved`
 - derived `gflops`
 - derived `gbytes`
-- `calc_ms ~= total_ms / repeats`
+- `calc_ms ~= total_ms / repeats` for rows where `mem_ms == 0`; GPU and hybrid rows are validated with `mem_ms` separated from the repeated loop
 - checksum consistency for the exact-comparison backends
 
 Hybrid rows are validated normally for the currently supported direct paths.
@@ -220,6 +219,7 @@ The repository is now consistent in these ways:
 
 - CPU scalar logic is not duplicated between `cpu_ref` and `cpu_auto`
 - `cpu_mt` is part of both benchmark execution and plotting
+- GPU and hybrid rows separate repeated-loop time from external transfer/setup overhead
 - raw counters are stored in CSV, so throughput can be audited after the run
 - plots and documentation reflect the current backend set
 

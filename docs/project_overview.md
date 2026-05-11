@@ -23,7 +23,7 @@ This repository compares CPU, GPU, and mixed CPU+GPU implementations of the same
 | Backend | Artifact | Goal | Main implementation style |
 | --- | --- | --- | --- |
 | `cpu_ref` | `libcpu_ref.so` | readable scalar baseline | shared scalar code built with minimal optimization |
-| `cpu_auto` | `libcpu_auto.so` | compiler-driven optimization baseline | same scalar code, built with `-O3 -march=native` |
+| `cpu_auto` | `libcpu_auto.so` | compiler-driven optimization baseline | same scalar code, built with `-O3 -march=native -ftree-vectorize -ffast-math` |
 | `cpu_avx512` | `libcpu_avx512.so` | manual SIMD tuning | explicit AVX-512 kernels plus benchmark wrappers |
 | `cpu_mt` | `libcpu_mt.so` | scale CPU work across all cores | multi-threaded wrappers around AVX-512 kernels |
 | `vulkan` | `libvkbench.so` | GPU compute backend | Vulkan host code plus GLSL compute shaders |
@@ -53,7 +53,7 @@ The current result pipeline now validates:
 - raw analytical `flops`
 - raw analytical `bytes_moved`
 - derived `gflops` and `gbytes`
-- `calc_ms ~= total_ms / repeats`
+- `calc_ms ~= total_ms / repeats` for rows where `mem_ms == 0`; GPU and hybrid rows keep transfer/setup overhead in `mem_ms`
 - checksum consistency across the exact-comparison backends
 
 That validation is implemented in [`scripts/validate_results.py`](../scripts/validate_results.py) and runs automatically from [`scripts/run_bench.sh`](../scripts/run_bench.sh).

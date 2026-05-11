@@ -131,7 +131,7 @@ def checksum_status(rows: list[dict[str, str]]) -> tuple[list[str], list[str]]:
             backend = row["backend"]
             if backend == "hybrid" and algo not in {"matmul", "nbody"}:
                 notes.append(
-                    f"skip checksum equivalence for hybrid/{algo}: hybrid still runs split subproblems, not a shared input"
+                    f"skip checksum equivalence for hybrid/{algo}: current hybrid backend only supports matmul and nbody"
                 )
                 continue
             value = float(row["checksum"])

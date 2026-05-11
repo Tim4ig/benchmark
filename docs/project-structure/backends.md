@@ -5,7 +5,7 @@
 | Backend | Artifact | Purpose | Algorithms | Notes |
 | --- | --- | --- | --- | --- |
 | `cpu_ref` | shared library | scalar baseline | 10 | wraps `cpu_scalar`, built with low optimization |
-| `cpu_auto` | shared library | compiler-optimized scalar baseline | 10 | wraps `cpu_scalar`, built with `-O3 -march=native` |
+| `cpu_auto` | shared library | compiler-optimized scalar baseline | 10 | wraps `cpu_scalar`, built with `-O3 -march=native -ftree-vectorize -ffast-math` |
 | `cpu_avx512` | shared library | manual SIMD backend | 10 | explicit AVX-512 kernels |
 | `cpu_mt` | shared library | multi-threaded CPU backend | 10 | parallel wrappers around AVX-512 kernels |
 | `vulkan` | shared library | GPU compute backend | 10 | Vulkan host code plus GLSL shaders |
@@ -151,7 +151,7 @@ Implementation:
 
 Current design:
 
-`hybrid` keeps one shared deterministic input, partitions the output domain between CPU and GPU, and merges the final result into one checksum-equivalent output. It uses a persistent Vulkan context and dedicated pipelines instead of delegating to the other backends through `dlopen`.
+`hybrid` keeps one shared deterministic input, partitions the output domain between CPU and GPU, and merges the final result into one checksum-equivalent output. The split is always adaptive: `HYBRID_CPU_RATIO` can seed the initial ratio, but the backend recalibrates and keeps updating the CPU/GPU share from measured throughput. It uses a persistent Vulkan context and dedicated pipelines instead of delegating to the other backends through `dlopen`.
 
 ## 8. `orchestrator`
 

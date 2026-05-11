@@ -122,10 +122,14 @@ if [[ ${#LIBS[@]} -eq 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Run benchmarks (20 repeats default via kDefaultRepeats in bench_settings.h)
+# Run benchmarks in time-based mode:
+#   - cold calibration
+#   - warm-up ~4.5 s
+#   - measured phase ~5.0 s
+# Repeats are chosen automatically for each kernel/backend.
 # ---------------------------------------------------------------------------
 echo ""
-echo "=== Running benchmarks (repeats=20) -> ${CSV} ==="
+echo "=== Running benchmarks (time-based warm-up + measured phase) -> ${CSV} ==="
 "${ORCHESTRATOR}" --csv "${CSV}" "${LIBS[@]}" 2>&1 | tee "${RESULTS_DIR}/bench_${TIMESTAMP}.log"
 
 cp -f "${CSV}" "${LATEST_CSV}"

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Run one backend/algorithm case sequentially with warm-ups and repeated samples.
+Run one backend/algorithm case sequentially with fixed-repeat warm-ups and samples.
 
-This script exists for accuracy-focused validation runs where one case should
-occupy the machine exclusively instead of sharing a long orchestrated suite.
+This helper is intentionally separate from the orchestrator's default time-based
+campaign. It exists for targeted validation runs where one case should occupy
+the machine exclusively and the repeat count is chosen explicitly by the user.
 """
 
 from __future__ import annotations
@@ -250,9 +251,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lib", required=True, help="Path to one backend shared library")
     parser.add_argument("--algo", required=True, choices=sorted(ALGO_ENUM))
-    parser.add_argument("--repeats", type=int, default=20)
-    parser.add_argument("--samples", type=int, default=7)
-    parser.add_argument("--warmups", type=int, default=1)
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        required=True,
+        help="Fixed repeat count for this helper. Unlike bench_orchestrator default mode, this script does not auto-calibrate repeats.",
+    )
+    parser.add_argument("--samples", type=int, default=7, help="Number of fixed-repeat measured samples to collect.")
+    parser.add_argument("--warmups", type=int, default=1, help="Number of fixed-repeat warm-up runs before sampling.")
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--n", type=int)
     parser.add_argument("--bins", type=int)

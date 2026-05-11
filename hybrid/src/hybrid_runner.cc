@@ -13,13 +13,18 @@
 #include <immintrin.h>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 namespace bench::hybrid {
 namespace {
 constexpr f32 kSoftening2 = 1.0e-4f;
-constexpr double kDefaultMatmulCpuRatio = 0.55;
-constexpr double kDefaultNbodyCpuRatio = 0.63;
+constexpr double kDefaultCpuRatioHint = 0.50;
+constexpr double kCalibrationTargetMs = 12.0;
+constexpr double kAdaptiveWindowMs = 4.0;
+constexpr double kAdaptiveEmaAlpha = 0.15;
+constexpr u32 kMinCalibrationIters = 4;
+constexpr u32 kMaxCalibrationIters = 64;
 const usize kThreadCount = std::max(1u, std::thread::hardware_concurrency());
 
 struct Timing {
@@ -45,7 +50,7 @@ double clamp_ratio(const double value) {
   return std::clamp(value, 0.0, 1.0);
 }
 
-double parse_cpu_ratio_override() {
+double parse_cpu_ratio_hint() {
   const char* raw = std::getenv("HYBRID_CPU_RATIO");
   if (raw == nullptr) {
     return -1.0;
@@ -58,18 +63,98 @@ double parse_cpu_ratio_override() {
   return clamp_ratio(value);
 }
 
-double cpu_ratio_for(const BenchAlgo algo) {
-  const double override_ratio = parse_cpu_ratio_override();
-  if (override_ratio >= 0.0) {
-    return override_ratio;
+double initial_cpu_ratio_for(const BenchAlgo /*algo*/) {
+  const double hint_ratio = parse_cpu_ratio_hint();
+  return hint_ratio >= 0.0 ? hint_ratio : kDefaultCpuRatioHint;
+}
+
+struct AdaptiveRatioTracker {
+  double ratio = kDefaultCpuRatioHint;
+  double ema_cpu_rate = 0.0;
+  double ema_gpu_rate = 0.0;
+  double pending_cpu_work = 0.0;
+  double pending_gpu_work = 0.0;
+  double pending_cpu_ms = 0.0;
+  double pending_gpu_ms = 0.0;
+
+  void seed(const double cpu_rate, const double gpu_rate) {
+    if (cpu_rate <= 0.0 || gpu_rate <= 0.0) {
+      return;
+    }
+    ema_cpu_rate = cpu_rate;
+    ema_gpu_rate = gpu_rate;
+    ratio = clamp_ratio(cpu_rate / (cpu_rate + gpu_rate));
+    pending_cpu_work = 0.0;
+    pending_gpu_work = 0.0;
+    pending_cpu_ms = 0.0;
+    pending_gpu_ms = 0.0;
   }
-  switch (algo) {
-    case BenchAlgo::kBenchAlgoMatmul:
-      return kDefaultMatmulCpuRatio;
-    case BenchAlgo::kBenchAlgoNbody:
-      return kDefaultNbodyCpuRatio;
-    default:
-      return 0.50;
+
+  void record_window(const double cpu_work,
+                     const double cpu_ms,
+                     const double gpu_work,
+                     const double gpu_ms,
+                     const bool flush = false) {
+    if (cpu_work <= 0.0 || gpu_work <= 0.0 || cpu_ms <= 0.0 || gpu_ms <= 0.0) {
+      return;
+    }
+
+    pending_cpu_work += cpu_work;
+    pending_gpu_work += gpu_work;
+    pending_cpu_ms += cpu_ms;
+    pending_gpu_ms += gpu_ms;
+
+    if (!flush && std::min(pending_cpu_ms, pending_gpu_ms) < kAdaptiveWindowMs) {
+      return;
+    }
+
+    const double sample_cpu_rate = pending_cpu_work / pending_cpu_ms;
+    const double sample_gpu_rate = pending_gpu_work / pending_gpu_ms;
+    if (ema_cpu_rate <= 0.0 || ema_gpu_rate <= 0.0) {
+      seed(sample_cpu_rate, sample_gpu_rate);
+      return;
+    }
+
+    ema_cpu_rate = (1.0 - kAdaptiveEmaAlpha) * ema_cpu_rate + kAdaptiveEmaAlpha * sample_cpu_rate;
+    ema_gpu_rate = (1.0 - kAdaptiveEmaAlpha) * ema_gpu_rate + kAdaptiveEmaAlpha * sample_gpu_rate;
+    ratio = clamp_ratio(ema_cpu_rate / (ema_cpu_rate + ema_gpu_rate));
+    pending_cpu_work = 0.0;
+    pending_gpu_work = 0.0;
+    pending_cpu_ms = 0.0;
+    pending_gpu_ms = 0.0;
+  }
+};
+
+template <typename RunSplitFn>
+void calibrate_ratio(AdaptiveRatioTracker& adaptive, RunSplitFn&& run_split) {
+  double acc_cpu_work = 0.0;
+  double acc_gpu_work = 0.0;
+  double acc_cpu_ms = 0.0;
+  double acc_gpu_ms = 0.0;
+
+  for (u32 cal = 0; cal < kMaxCalibrationIters; ++cal) {
+    const auto [cpu_work, cpu_ms, gpu_work, gpu_ms] = run_split(adaptive.ratio);
+    if (cpu_work <= 0.0 || gpu_work <= 0.0 || cpu_ms <= 0.0 || gpu_ms <= 0.0) {
+      continue;
+    }
+
+    acc_cpu_work += cpu_work;
+    acc_gpu_work += gpu_work;
+    acc_cpu_ms += cpu_ms;
+    acc_gpu_ms += gpu_ms;
+
+    const double cpu_rate = acc_cpu_work / acc_cpu_ms;
+    const double gpu_rate = acc_gpu_work / acc_gpu_ms;
+    adaptive.ratio = clamp_ratio(cpu_rate / (cpu_rate + gpu_rate));
+
+    if (cal + 1 >= kMinCalibrationIters && std::min(acc_cpu_ms, acc_gpu_ms) >= kCalibrationTargetMs) {
+      adaptive.seed(cpu_rate, gpu_rate);
+      return;
+    }
+  }
+
+  if (acc_cpu_ms > 0.0 && acc_gpu_ms > 0.0) {
+    adaptive.seed(acc_cpu_work / acc_cpu_ms, acc_gpu_work / acc_gpu_ms);
   }
 }
 
@@ -369,17 +454,40 @@ BenchResult HybridRunner::run_matmul(const BenchOptions& options) {
   const u32 group_x = static_cast<u32>((n + 15) / 16);
   const u32 push_n = static_cast<u32>(n);
 
-  // Adaptive ratio: start with heuristic default, refine each repeat.
-  // Override env var bypasses adaptation.
-  const bool has_override = parse_cpu_ratio_override() >= 0.0;
-  double ratio = cpu_ratio_for(BenchAlgo::kBenchAlgoMatmul);
+  AdaptiveRatioTracker adaptive;
+  adaptive.ratio = initial_cpu_ratio_for(BenchAlgo::kBenchAlgoMatmul);
 
   using clock = std::chrono::steady_clock;
   f64 total_ms = 0.0;
   usize last_gpu_rows = 0;
 
+  // Calibration phase: run concurrent CPU+GPU splits until both sides accumulate
+  // enough wall time to estimate stable throughput. The starting ratio is always
+  // derived from measured rates; there is no static fallback.
+  calibrate_ratio(adaptive, [&](const double ratio_hint) {
+    const usize cal_cpu_rows = std::min(
+        std::max(static_cast<usize>(std::round(static_cast<double>(n) * ratio_hint)), usize{1}), n - 1);
+    const usize cal_gpu_rows = n - cal_cpu_rows;
+    const u32 cal_group_y = static_cast<u32>((cal_gpu_rows + 15) / 16);
+    std::atomic<f64> cal_cpu_ms{0.0};
+    std::thread cal_thread([&, gr = cal_gpu_rows] {
+      const auto t0 = clock::now();
+      parallel_for_range(gr, n, [&](const usize begin, const usize end) {
+        matmul_rows(a.data(), b.data(), c.data(), n, begin, end);
+      });
+      cal_cpu_ms.store(std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - t0).count());
+    });
+    const auto cal_gpu_t0 = clock::now();
+    dispatch_matmul(ctx_, resources_, matmul_pipeline_, set, push_n, group_x, cal_group_y);
+    const f64 cal_gpu_ms =
+        std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - cal_gpu_t0).count();
+    cal_thread.join();
+    return std::tuple<double, double, double, double>{
+        static_cast<double>(cal_cpu_rows), cal_cpu_ms.load(), static_cast<double>(cal_gpu_rows), cal_gpu_ms};
+  });
+
   for (u32 repeat = 0; repeat < options.repeats; ++repeat) {
-    usize cpu_rows = static_cast<usize>(std::round(static_cast<double>(n) * ratio));
+    usize cpu_rows = static_cast<usize>(std::round(static_cast<double>(n) * adaptive.ratio));
     if (n > 1) {
       cpu_rows = std::min(std::max(cpu_rows, usize{1}), n - 1);
     }
@@ -408,19 +516,13 @@ BenchResult HybridRunner::run_matmul(const BenchOptions& options) {
     total_ms +=
         std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - rep_start).count();
 
-    // Adaptive update: equalize CPU and GPU throughput rates.
-    // Skip update when timings are below 1 ms — clock noise dominates at sub-ms
-    // granularity and causes the ratio to oscillate rather than converge.
-    if (!has_override) {
-      const f64 t_cpu = cpu_time_ms.load();
-      constexpr f64 kMinAdaptiveMs = 1.0;
-      if (t_cpu > kMinAdaptiveMs && gpu_time_ms > kMinAdaptiveMs) {
-        const double r_cpu = static_cast<double>(cpu_rows) / t_cpu;
-        const double r_gpu = static_cast<double>(gpu_rows) / gpu_time_ms;
-        const double target = r_cpu / (r_cpu + r_gpu);
-        ratio = clamp_ratio(0.9 * ratio + 0.1 * target);
-      }
-    }
+    // Dynamic adaptation is always enabled. For very fast iterations the tracker
+    // aggregates multiple repeats into one update window before refreshing the EMA.
+    adaptive.record_window(static_cast<double>(cpu_rows),
+                           cpu_time_ms.load(),
+                           static_cast<double>(gpu_rows),
+                           gpu_time_ms,
+                           repeat + 1 == options.repeats);
   }
 
   const f64 mem_d2h_ms = time_ms_fn([&] { vk_read_buffer(ctx_, bc, gpu_c.data(), bc.size); });
@@ -500,16 +602,38 @@ BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
   const auto infos = make_bindings(dummy_, {bpx, bpy, bmass, bfx, bfy});
   vk_update_descriptor_set(ctx_, set, infos);
 
-  // Adaptive ratio: start with heuristic default, refine each repeat.
-  const bool has_override = parse_cpu_ratio_override() >= 0.0;
-  double ratio = cpu_ratio_for(BenchAlgo::kBenchAlgoNbody);
+  AdaptiveRatioTracker adaptive;
+  adaptive.ratio = initial_cpu_ratio_for(BenchAlgo::kBenchAlgoNbody);
 
   using clock = std::chrono::steady_clock;
   f64 total_ms = 0.0;
   usize last_gpu_n = 0;
 
+  calibrate_ratio(adaptive, [&](const double ratio_hint) {
+    const usize cal_cpu_n = std::min(
+        std::max(static_cast<usize>(std::round(static_cast<double>(n) * ratio_hint)), usize{1}), n - 1);
+    const usize cal_gpu_n = n - cal_cpu_n;
+    const NBodyPush cal_push{static_cast<u32>(n), static_cast<u32>(cal_gpu_n), kSoftening2};
+    const u32 cal_groups = static_cast<u32>((cal_gpu_n + 255) / 256);
+    std::atomic<f64> cal_cpu_ms{0.0};
+    std::thread cal_thread([&, gn = cal_gpu_n] {
+      const auto t0 = clock::now();
+      parallel_for_range(gn, n, [&](const usize begin, const usize end) {
+        nbody_range(px.data(), py.data(), mass.data(), fx.data(), fy.data(), n, begin, end);
+      });
+      cal_cpu_ms.store(std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - t0).count());
+    });
+    const auto cal_gpu_t0 = clock::now();
+    dispatch_nbody(ctx_, resources_, nbody_pipeline_, set, cal_push, cal_groups);
+    const f64 cal_gpu_ms =
+        std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - cal_gpu_t0).count();
+    cal_thread.join();
+    return std::tuple<double, double, double, double>{
+        static_cast<double>(cal_cpu_n), cal_cpu_ms.load(), static_cast<double>(cal_gpu_n), cal_gpu_ms};
+  });
+
   for (u32 repeat = 0; repeat < options.repeats; ++repeat) {
-    usize cpu_n = static_cast<usize>(std::round(static_cast<double>(n) * ratio));
+    usize cpu_n = static_cast<usize>(std::round(static_cast<double>(n) * adaptive.ratio));
     if (n > 1) {
       cpu_n = std::min(std::max(cpu_n, usize{1}), n - 1);
     }
@@ -540,19 +664,11 @@ BenchResult HybridRunner::run_nbody(const BenchOptions& options) {
     total_ms +=
         std::chrono::duration_cast<std::chrono::duration<f64, std::milli>>(clock::now() - rep_start).count();
 
-    // Adaptive update: equalize CPU and GPU throughput rates.
-    // Skip update when timings are below 1 ms — clock noise dominates at sub-ms
-    // granularity and causes the ratio to oscillate rather than converge.
-    if (!has_override) {
-      const f64 t_cpu = cpu_time_ms.load();
-      constexpr f64 kMinAdaptiveMs = 1.0;
-      if (t_cpu > kMinAdaptiveMs && gpu_time_ms > kMinAdaptiveMs) {
-        const double r_cpu = static_cast<double>(cpu_n) / t_cpu;
-        const double r_gpu = static_cast<double>(gpu_n) / gpu_time_ms;
-        const double target = r_cpu / (r_cpu + r_gpu);
-        ratio = clamp_ratio(0.9 * ratio + 0.1 * target);
-      }
-    }
+    adaptive.record_window(static_cast<double>(cpu_n),
+                           cpu_time_ms.load(),
+                           static_cast<double>(gpu_n),
+                           gpu_time_ms,
+                           repeat + 1 == options.repeats);
   }
 
   // Read back the GPU portion computed in the last iteration.

@@ -55,7 +55,9 @@ The easiest path is the automation script:
 That script:
 
 - builds the project
+- attempts to switch the host into a performance-oriented measurement state (`sudo`, governor/EPP/RAPL/GPU cap)
 - runs all discovered backends
+- uses time-based execution by default: cold calibration, warm-up of about `4.5 s`, then a measured phase of about `5.0 s`
 - writes a timestamped CSV and updates `results/latest.csv`
 - validates analytical metrics and checksum consistency
 - generates plots in `results/plots_<timestamp>/`
@@ -77,13 +79,19 @@ You can also run the orchestrator directly:
 
 Each CSV row contains:
 
-- `total_ms`: total wall time across all repeats
-- `calc_ms`: average time per repeat
+- `repeats`: automatically chosen repeat count for the measured phase in the default time-based mode
+- `total_ms`: end-to-end wall time for the measured phase; for GPU and hybrid backends this includes the one-time H2D/D2H transfers
+- `calc_ms`: average per-repeat dispatch-loop wall time during the measured phase
+- `mem_ms`: transfer/setup overhead kept outside the repeated dispatch loop; for most GPU paths this is H2D + D2H, with a few kernel-specific extras such as histogram bin reset/upload
 - `flops`: analytical operation count for the benchmarked workload
 - `bytes_moved`: analytical logical data movement for the same workload
 - `gflops`: `flops / (calc_ms * 1e6)`
 - `gbytes`: `bytes_moved / (calc_ms * 1e6)`
 - `checksum`: lightweight output sanity signal
+- `watts_cpu`, `watts_gpu`: average power sampled by the orchestrator around the backend `run()` call; this covers the measured loop plus backend-local setup/finalization, and for `hybrid` also its internal adaptive calibration
+- `status`: backend return code (`0` = success)
+
+The CSV file also starts with `# git_hash=...`, `# build_ts=...`, and `# compiler=...` comment lines so each measurement campaign stays tied to one concrete build.
 
 The validator is available as a standalone script:
 
@@ -100,6 +108,8 @@ python3 scripts/validate_results.py results/latest.csv
 
 These paths keep one deterministic input and split the output domain between CPU and GPU, so their checksum is directly comparable to the other backends.
 
+The CPU/GPU split is always adaptive. `HYBRID_CPU_RATIO` is only an initial hint for the starting ratio; the runtime still recalibrates and updates the split from measured CPU and GPU throughput.
+
 The hybrid backend is still intentionally narrow in scope. It only exposes kernels where the split is structurally clean and worth demonstrating.
 
 ## Documentation
@@ -111,3 +121,9 @@ The hybrid backend is still intentionally narrow in scope. It only exposes kerne
 - [Algorithm notes](./docs/project-structure/algorithms.md)
 - [Project status](./docs/completion_plan.md)
 - [Verification notes](./docs/code_review.md)
+
+## License
+
+`SPDX-License-Identifier: MIT`
+
+Copyright (c) 2025-2026 Tymur Kramar. See [LICENSE](./LICENSE) for details.
