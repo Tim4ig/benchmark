@@ -1,5 +1,7 @@
 # cpugpu-bench
 
+The project was originally developed for a university research paper. I submitted the paper, graduated, and stopped working on the project, so I decided to make it public!
+
 `cpugpu-bench` is a plugin-based benchmark suite for comparing the same algorithm set across several backends:
 
 - `cpu_ref`: scalar baseline, built for readability and correctness
